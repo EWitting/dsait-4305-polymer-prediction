@@ -7,4 +7,5 @@
 
 Launch tensorboard with `uv run tensorboard --logdir lightning_logs` to view the progress. In another terminal, run `uv run main.py` to run the code. 
 
-# data formats
+# Data Format
+Uses the PyG (PyTorch Geometric) format, which provides its own [Data class for graphs](https://pytorch-geometric.readthedocs.io/en/2.5.1/generated/torch_geometric.data.Data.html#torch_geometric.data.Data). It's based on edge lists. See `src/preprocessing/text_based.py` for an example.
