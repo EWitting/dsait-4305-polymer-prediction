@@ -8,3 +8,8 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Data
+data/raw
+
+lightning_logs
