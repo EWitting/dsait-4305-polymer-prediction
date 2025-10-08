@@ -67,8 +67,8 @@ class GATv2(torch.nn.Module):
             x_headed = attn(x, data.edge_index)
             x = self.act(lin(x_headed))
             
-        x = self.pooling1(x, data.edge_index)
-        x = self.global_pool(x)
+        pool_out = self.pooling1(x, data.edge_index, batch=data.batch)
+        x = self.global_pool(pool_out[0], pool_out[3])
         out = self.fcs(x)
         
         return out

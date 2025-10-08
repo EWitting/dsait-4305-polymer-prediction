@@ -18,6 +18,7 @@ from src.loss.masked_loss import MaskedLoss
 import warnings
 
 print('Finished importing libraries.')
+print(f'CUDA available: {torch.cuda.is_available()}')
 
 # Create datasets and dataloaders
 class GraphDataset(Dataset):
@@ -72,17 +73,23 @@ if __name__ == "__main__":
     parser.add_argument('-e', '--epochs', type=int, default=50, help='number of steps')
     parser.add_argument('-b', '--batch_size', type=int, default=32, help='batch size')
     parser.add_argument('-lr', '--lr', type=float, default=1e-3, help='learning rate')
-    parser.add_argument('-d', '--device', type=str, default='cpu', help='device')
-    parser.add_argument('--seed', type=int, default=None, help='seed experiment') #TODO: to use
-    parser.add_argument('-m', '--model', type=str, default='gcn', help='model type ') #TODO: to use
+    parser.add_argument('-d', '--device', type=str, default='gpu', help='device')
+    parser.add_argument('--seed', type=int, default=None, help='seed experiment') #TODO: reproducible 
+    parser.add_argument('-m', '--model', type=str, default='gat', help='model type ') 
 
     args = parser.parse_args()
     
     # =================== Parameters ===================
     DATA_DIR = "data/raw"
     PREPROCESSOR = TextBasedPreprocessor() # Anything that transforms SMILES string into PyG graph
-    # MODEL = SimpleGCN(43, 128, 5) # Torch module that takes graph and outputs (batch_size, num_labels=5) 
-    MODEL = GATv2(43)
+
+    # select model
+    match args.model:
+        case "gcn":
+            MODEL = SimpleGCN(43, 128, 5) # Torch module that takes graph and outputs (batch_size, num_labels=5) 
+        case "gat":
+            MODEL = GATv2(43)
+    
     OPTIMIZER = Adam(MODEL.parameters(), lr=args.lr)
     LOSS_FN = MaskedLoss(L1Loss()) # Mask the loss in case of missing labels
     BATCH_SIZE = args.batch_size
