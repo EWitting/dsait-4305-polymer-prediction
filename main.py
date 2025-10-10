@@ -16,6 +16,7 @@ from src.models.gcn import SimpleGCN
 from src.models.gat import GATv2
 from src.loss.masked_loss import MaskedLoss
 import warnings
+import random
 
 print('Finished importing libraries.')
 print(f'CUDA available: {torch.cuda.is_available()}')
@@ -74,10 +75,17 @@ if __name__ == "__main__":
     parser.add_argument('-b', '--batch_size', type=int, default=32, help='batch size')
     parser.add_argument('-lr', '--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('-d', '--device', type=str, default='gpu', help='device')
-    parser.add_argument('--seed', type=int, default=None, help='seed experiment') #TODO: reproducible 
+    parser.add_argument('--seed', type=int, default=None, help='seed experiment') 
     parser.add_argument('-m', '--model', type=str, default='gat', help='model type ') 
 
     args = parser.parse_args()
+    
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
+        torch.backends.cudnn.deterministic = True
+
     
     # =================== Parameters ===================
     DATA_DIR = "data/raw"
