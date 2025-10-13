@@ -1,0 +1,7 @@
+# Weighted MAE Loss Configuration
+_target_: src.loss.masked_loss.WeightedMAELoss
+
+# These will be set dynamically from data statistics
+property_ranges: null
+num_samples_per_property: null
+

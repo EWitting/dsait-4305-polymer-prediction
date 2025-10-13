@@ -1,0 +1,7 @@
+# Simple GCN Model Configuration
+_target_: src.models.gcn.SimpleGCN
+
+in_channels: 43  # Number of node features
+hidden_channels: 128
+out_channels: 5  # Number of target properties to predict
+

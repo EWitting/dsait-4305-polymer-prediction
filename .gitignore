@@ -12,4 +12,10 @@ wheels/
 # Data
 data/raw
 
+# Training outputs
 lightning_logs
+
+# Hydra outputs
+outputs/
+multirun/
+.hydra/

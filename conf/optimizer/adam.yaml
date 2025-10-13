@@ -1,0 +1,6 @@
+# Adam Optimizer Configuration
+_target_: torch.optim.Adam
+_partial_: true  # Used for partial instantiation, will be passed model parameters later
+
+lr: 0.001
+
