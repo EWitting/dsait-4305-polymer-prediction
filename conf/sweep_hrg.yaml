@@ -3,7 +3,7 @@ program: main.py
 project: polymer-prediction  # Change this to your desired WandB project name
 method: bayes  # Bayesian optimization for efficient hyperparameter search
 metric:
-  name: val/loss
+  name: val_loss
   goal: minimize
 
 parameters:
