@@ -4,6 +4,7 @@ from rdkit import Chem
 from torch_geometric.utils import from_smiles
 from sklearn.base import BaseEstimator, TransformerMixin
 import torch
+from tqdm import tqdm
 
 
 # Finds an atom that is bonded to the "*" (connection points)
@@ -115,7 +116,8 @@ class OligomerPreprocessor:
     def transform(self, smiles_list: list[str]):
         graphs = []
         # for each one of the SMILES strings in the input
-        for smiles in smiles_list:
+        no_oligomer_count = 0
+        for smiles in tqdm(smiles_list, desc=f"Processing SMILES string to oligomer of length {self.oligomer_len}"):
             processed_smiles = smiles
 
             if self.oligomer_len > 1 and smiles.count("*") == 2:
@@ -123,6 +125,7 @@ class OligomerPreprocessor:
                     # apply polymerization to create a longer SMILES string.
                     processed_smiles = smiles_to_oligomer(smiles, self.oligomer_len)
                 except Exception as e:
+                    no_oligomer_count += 1
                     warnings.warn(
                         f"Could not generate oligomer for '{smiles}': {e}. Using original monomer."
                     )
@@ -136,6 +139,8 @@ class OligomerPreprocessor:
                 warnings.warn(
                     f"Could not create graph for SMILES '{processed_smiles}': {e}. Skipping."
                 )
+        if no_oligomer_count > 0:
+            warnings.warn(f"Could not generate oligomer for {no_oligomer_count}/{len(smiles_list)} SMILES strings.")
 
         return graphs
 
