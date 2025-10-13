@@ -19,3 +19,6 @@ lightning_logs
 outputs/
 multirun/
 .hydra/
+
+# wandb
+wandb/
