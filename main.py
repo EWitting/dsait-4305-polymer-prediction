@@ -14,12 +14,17 @@ import torch
 from src.preprocessing.text_based import TextBasedPreprocessor
 from src.models.gcn import SimpleGCN
 from src.models.gat import GATv2
-from src.loss.masked_loss import MaskedLoss
+from src.loss.masked_loss import MaskedLoss, WeightedMAELoss
 import warnings
 import random
 
 print('Finished importing libraries.')
 print(f'CUDA available: {torch.cuda.is_available()}')
+
+# Suppress warning about worker count, increasing workers lead to crashing on windows
+warnings.filterwarnings("ignore", ".*does not have many workers.*")     
+# Suppress warning about torch-scatter, which has difficulties installing with uv
+warnings.filterwarnings("ignore", ".*can be accelerated via the 'torch-scatter' package*") 
 
 # Create datasets and dataloaders
 class GraphDataset(Dataset):
@@ -99,8 +104,8 @@ if __name__ == "__main__":
             MODEL = GATv2(43)
     
     OPTIMIZER = Adam(MODEL.parameters(), lr=args.lr)
-    LOSS_FN = MaskedLoss(L1Loss()) # Mask the loss in case of missing labels
     BATCH_SIZE = args.batch_size
+    # Note: LOSS_FN will be initialized after loading data when amount of missing values and property ranges are known
     TRAINER_PARAMS = {
         'max_epochs': args.epochs,
         'accelerator': args.device,
@@ -123,6 +128,20 @@ if __name__ == "__main__":
     # Train, Val, Test split of 70/15/15
     X_trainval, X_test, Y_trainval, Y_test = train_test_split(X, Y, test_size=0.15, random_state=42)
     X_train, X_val, Y_train, Y_val = train_test_split(X_trainval, Y_trainval, test_size=0.17, random_state=42)
+    
+    # Compute property statistics across all data, may introduce slight leakage
+    # In more complex validation schemes, each train/val/test split should use their own statistics in the loss function
+    property_ranges = torch.tensor([
+        np.nanmax(Y[:, i]) - np.nanmin(Y[:, i]) 
+        for i in range(Y.shape[1])
+    ], dtype=torch.float32)
+    
+    num_samples_per_property = torch.tensor([
+        np.sum(~np.isnan(Y[:, i])) 
+        for i in range(Y.shape[1])
+    ], dtype=torch.float32)
+    # Initialize loss function based on statistics
+    LOSS_FN = WeightedMAELoss(property_ranges, num_samples_per_property)
 
     # Preprocess data
     # Fit the preprocessor on training data and transform all datasets
@@ -137,7 +156,6 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, **DATALOADER_PARAMS)
     val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, **DATALOADER_PARAMS)
     test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, **DATALOADER_PARAMS)
-    warnings.filterwarnings("ignore", ".*does not have many workers.*") # Suppress warning about worker count, increasing workers lead to crashing on windows
 
     LIGHTNING_MODEL = LightningModel(MODEL, OPTIMIZER, LOSS_FN)
 
