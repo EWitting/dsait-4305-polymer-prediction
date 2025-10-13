@@ -16,7 +16,7 @@ val_size: 0.17  # Proportion of remaining data after test split
 random_state: 42
 
 # DataLoader configuration
-batch_size: 32
+batch_size: 64
 num_workers: 0  # Set to 0 for Windows compatibility
 persistent_workers: false
 

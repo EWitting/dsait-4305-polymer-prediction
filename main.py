@@ -43,10 +43,11 @@ class GraphDataset(Dataset):
 
 # Wrap the model in a LightningModule
 class LightningModel(pl.LightningModule):
-    def __init__(self, model, optimizer, loss_fn, batch_size, hparams=None):
+    def __init__(self, model, optimizer, scheduler, loss_fn, batch_size, hparams=None):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
+        self.scheduler = scheduler
         self.loss_fn = loss_fn
         self.batch_size = batch_size
         # Save hyperparameters for wandb/tensorboard logging
@@ -78,7 +79,10 @@ class LightningModel(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return self.optimizer
+        if self.scheduler is not None:
+            return {'optimizer': self.optimizer, 'scheduler': self.scheduler}
+        else:
+            return {'optimizer': self.optimizer}
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -186,6 +190,13 @@ def main(cfg: DictConfig):
     print(f"\nInstantiating optimizer: {cfg.optimizer._target_}")
     # Use partial instantiation to pass model parameters
     optimizer = instantiate(cfg.optimizer)(model.parameters())
+
+    # =================== Scheduler Instantiation ===================
+    if cfg.scheduler is not None:
+        print(f"\nInstantiating scheduler: {cfg.scheduler._target_}")
+        scheduler = instantiate(cfg.scheduler)(optimizer)
+    else:
+        scheduler = None
     
     # =================== Wandb Logger Setup ===================
     print("\nSetting up Weights & Biases logger...")
@@ -210,6 +221,7 @@ def main(cfg: DictConfig):
     lightning_model = LightningModel(
         model=model,
         optimizer=optimizer,
+        scheduler=scheduler,
         loss_fn=loss_fn,
         batch_size=cfg.data.batch_size,
         hparams=config_dict

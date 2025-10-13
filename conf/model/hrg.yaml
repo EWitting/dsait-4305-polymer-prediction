@@ -1,0 +1,47 @@
+# Deep Hybrid Residual Graph Model (more blocks)
+_target_: src.models.hrg.HybridResidualGraphNetwork
+
+
+in_channels: 9
+hidden_dim: 64
+fc_hidden_dims: [32,16]
+out_channels: 5
+
+activation:
+  _target_: torch.nn.Mish
+pooling:
+  _target_: torch_geometric.nn.global_mean_pool
+  _partial_: true
+dropout: 0.1
+
+num_blocks: 3
+block:
+  _target_: src.models.hrg.HybridResidualGraphBlock
+  _partial_: true # because it needs to be instantiated multipe times
+  hidden_dim: ${..hidden_dim}
+
+  num_conv_layers: 2
+  conv_layer:
+    _target_: torch_geometric.nn.GCNConv
+    _partial_: true
+    in_channels: ${...hidden_dim}
+    out_channels: ${...hidden_dim}
+    improved: true
+
+  num_attention_layers: 1
+  attention_heads: 8
+  attention_layer:
+    _target_: torch_geometric.nn.GATv2Conv
+    _partial_: true
+    in_channels: ${...hidden_dim}
+    out_channels: ${...hidden_dim}
+    heads: ${..attention_heads}
+    dropout: ${...dropout}
+
+  use_layer_norm: true
+  dropout: ${..dropout}
+  activation: ${..activation}
+
+
+
+

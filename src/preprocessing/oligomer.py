@@ -117,7 +117,8 @@ class OligomerPreprocessor:
         graphs = []
         # for each one of the SMILES strings in the input
         no_oligomer_count = 0
-        for smiles in tqdm(smiles_list, desc=f"Processing SMILES string to oligomer of length {self.oligomer_len}"):
+        pbar = tqdm(smiles_list, desc=f"Processing SMILES string to oligomer of length {self.oligomer_len}")
+        for smiles in pbar:
             processed_smiles = smiles
 
             if self.oligomer_len > 1 and smiles.count("*") == 2:
@@ -126,9 +127,7 @@ class OligomerPreprocessor:
                     processed_smiles = smiles_to_oligomer(smiles, self.oligomer_len)
                 except Exception as e:
                     no_oligomer_count += 1
-                    warnings.warn(
-                        f"Could not generate oligomer for '{smiles}': {e}. Using original monomer."
-                    )
+                    pbar.set_postfix({"Unsuccessful": no_oligomer_count})
 
             # Convert the final SMILES string to a graph Data object using RDKit
             try:
