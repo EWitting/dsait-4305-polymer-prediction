@@ -17,7 +17,6 @@ import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
 
-from src.preprocessing.text_based import TextBasedPreprocessor
 from src.loss.masked_loss import WeightedMAELoss
 
 print('Finished importing libraries.')
@@ -140,8 +139,9 @@ def main(cfg: DictConfig):
     print(f"\nLoss function initialized with property ranges: {property_ranges}")
     
     # =================== Preprocessing ===================
+    print(f"\nInstantiating preprocessor: {cfg.preprocessing._target_}")
+    preprocessor = instantiate(cfg.preprocessing)
     print("\nPreprocessing data...")
-    preprocessor = TextBasedPreprocessor()
     X_train = preprocessor.fit_transform(X_train)
     X_val = preprocessor.transform(X_val)
     X_test = preprocessor.transform(X_test)

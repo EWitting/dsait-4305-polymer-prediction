@@ -6,6 +6,7 @@ defaults:
   - data: default
   - loss: weighted_mae
   - wandb: default
+  - preprocessing: oligomer
   - _self_
 
 # Experiment settings

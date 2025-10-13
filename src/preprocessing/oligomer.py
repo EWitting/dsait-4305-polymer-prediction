@@ -130,6 +130,7 @@ class OligomerPreprocessor:
             # Convert the final SMILES string to a graph Data object using RDKit
             try:
                 graph = from_smiles(processed_smiles)
+                graph.x = graph.x.float()
                 graphs.append(graph)
             except Exception as e:
                 warnings.warn(
