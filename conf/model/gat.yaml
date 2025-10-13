@@ -1,0 +1,11 @@
+# GATv2 Model Configuration
+_target_: src.models.gat.GATv2
+
+in_channel: 9  # Number of node features
+hidden_channels: [128]
+hidden_layers: [16, 32]
+heads: 8
+edge_dim: null
+dropout: 0.1
+residual: true
+

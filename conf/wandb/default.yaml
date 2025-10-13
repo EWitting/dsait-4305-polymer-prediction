@@ -1,0 +1,7 @@
+# Weights & Biases Configuration
+project: polymer-prediction
+name: null  # Auto-generated if not specified
+save_dir: lightning_logs
+offline: false
+log_model: false
+

@@ -1,0 +1,43 @@
+# @package _global_
+
+# Example Experiment Configuration
+# This file demonstrates how to create a custom experiment configuration
+# that overrides multiple settings at once.
+#
+# Usage: uv run main.py +experiment=experiment_example
+#
+# The '+' prefix tells Hydra to add this config to the defaults list
+# without replacing the main config.
+
+defaults:
+  - override /model: gat
+  - override /optimizer: adam
+
+# Experiment identification
+experiment_name: "gat-large-sweep"
+seed: 42
+
+# Model configuration overrides
+model:
+  hidden_channels: [256, 256]
+  hidden_layers: [32, 64]
+  heads: 16
+  dropout: 0.2
+
+# Optimizer overrides
+optimizer:
+  lr: 0.0005
+
+# Data configuration overrides
+data:
+  batch_size: 64
+
+# Trainer overrides
+trainer:
+  max_epochs: 100
+
+# Wandb overrides
+wandb:
+  name: "gat-large-sweep-seed${seed}"
+  project: "polymer-prediction"
+

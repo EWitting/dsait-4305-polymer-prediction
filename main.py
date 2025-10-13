@@ -1,22 +1,23 @@
 print('Importing libraries...')
-import argparse
-import pandas as pd
 import os
 import numpy as np
-from sklearn.model_selection import train_test_split
-import lightning.pytorch as pl
-from torch_geometric.loader import DataLoader
-from lightning.pytorch.loggers import TensorBoardLogger
-from torch.nn import L1Loss
-from torch.optim import Adam
-from torch.utils.data import Dataset
-import torch
-from src.preprocessing.text_based import TextBasedPreprocessor
-from src.models.gcn import SimpleGCN
-from src.models.gat import GATv2
-from src.loss.masked_loss import MaskedLoss, WeightedMAELoss
-import warnings
+import pandas as pd
 import random
+import warnings
+from sklearn.model_selection import train_test_split
+
+import torch
+from torch.utils.data import Dataset
+from torch_geometric.loader import DataLoader
+
+import lightning.pytorch as pl
+from lightning.pytorch.loggers import WandbLogger
+
+import hydra
+from hydra.utils import instantiate
+from omegaconf import DictConfig, OmegaConf
+
+from src.loss.masked_loss import WeightedMAELoss
 
 print('Finished importing libraries.')
 print(f'CUDA available: {torch.cuda.is_available()}')
@@ -26,23 +27,31 @@ warnings.filterwarnings("ignore", ".*does not have many workers.*")
 # Suppress warning about torch-scatter, which has difficulties installing with uv
 warnings.filterwarnings("ignore", ".*can be accelerated via the 'torch-scatter' package*") 
 
+
 # Create datasets and dataloaders
 class GraphDataset(Dataset):
     def __init__(self, graphs, labels):
         self.graphs = graphs
-        self.labels = torch.tensor(labels, dtype=torch.float32)    
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+    
     def __len__(self):
-        return len(self.graphs)    
+        return len(self.graphs)
+    
     def __getitem__(self, idx):
         return self.graphs[idx], self.labels[idx]
 
+
 # Wrap the model in a LightningModule
 class LightningModel(pl.LightningModule):
-    def __init__(self, model, optimizer, loss_fn):
+    def __init__(self, model, optimizer, loss_fn, batch_size, hparams=None):
         super().__init__()
         self.model = model
         self.optimizer = optimizer
         self.loss_fn = loss_fn
+        self.batch_size = batch_size
+        # Save hyperparameters for wandb/tensorboard logging
+        if hparams:
+            self.save_hyperparameters(hparams)
 
     def forward(self, x):
         return self.model(x)
@@ -51,86 +60,70 @@ class LightningModel(pl.LightningModule):
         x, y = batch
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
-        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=BATCH_SIZE)
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
         return loss
     
     def validation_step(self, batch):
         x, y = batch
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
-        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=BATCH_SIZE)
+        self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
         return loss
     
     def test_step(self, batch):
         x, y = batch
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
-        self.log('test_loss', loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=BATCH_SIZE)
+        self.log('test_loss', loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
         return loss
 
     def configure_optimizers(self):
         return self.optimizer
 
-if __name__ == "__main__":
-    # parsing inputs
-    
-    parser = argparse.ArgumentParser()
 
-    parser.add_argument('-e', '--epochs', type=int, default=50, help='number of steps')
-    parser.add_argument('-b', '--batch_size', type=int, default=32, help='batch size')
-    parser.add_argument('-lr', '--lr', type=float, default=1e-3, help='learning rate')
-    parser.add_argument('-d', '--device', type=str, default='gpu', help='device')
-    parser.add_argument('--seed', type=int, default=None, help='seed experiment') 
-    parser.add_argument('-m', '--model', type=str, default='gat', help='model type ') 
-
-    args = parser.parse_args()
+@hydra.main(version_base=None, config_path="conf", config_name="config")
+def main(cfg: DictConfig):
+    """Main training function using Hydra configuration."""
     
-    if args.seed is not None:
-        random.seed(args.seed)
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
+    print("="*60)
+    print("Configuration:")
+    print(OmegaConf.to_yaml(cfg))
+    print("="*60)
+    
+    # Set random seed if specified
+    if cfg.seed is not None:
+        random.seed(cfg.seed)
+        np.random.seed(cfg.seed)
+        torch.manual_seed(cfg.seed)
         torch.backends.cudnn.deterministic = True
-
+        print(f"Random seed set to: {cfg.seed}")
     
-    # =================== Parameters ===================
-    DATA_DIR = "data/raw"
-    PREPROCESSOR = TextBasedPreprocessor() # Anything that transforms SMILES string into PyG graph
-
-    # select model
-    match args.model:
-        case "gcn":
-            MODEL = SimpleGCN(43, 128, 5) # Torch module that takes graph and outputs (batch_size, num_labels=5) 
-        case "gat":
-            MODEL = GATv2(43)
+    # =================== Data Loading ===================
+    print("\nLoading data...")
+    data_path = os.path.join(cfg.data.data_dir, cfg.data.train_file)
+    raw_train_data = pd.read_csv(data_path)
     
-    OPTIMIZER = Adam(MODEL.parameters(), lr=args.lr)
-    BATCH_SIZE = args.batch_size
-    # Note: LOSS_FN will be initialized after loading data when amount of missing values and property ranges are known
-    TRAINER_PARAMS = {
-        'max_epochs': args.epochs,
-        'accelerator': args.device,
-        'logger': TensorBoardLogger(save_dir='lightning_logs'),
-        # 'callbacks': [pl.callbacks.EarlyStopping(monitor='val_loss', mode='min', patience=5)]
-    }
-    DATALOADER_PARAMS = {
-        # 'num_workers': 8,
-        # 'persistent_workers': True
-    }
-    # =================== Parameters ===================
-
-
-    # Load data as numpy arrays
-    raw_train_data = pd.read_csv(os.path.join(DATA_DIR, "train.csv"))
-    label_names = ['Tg','FFV','Tc','Density','Rg']
     X = raw_train_data['SMILES'].values
-    Y = raw_train_data[label_names].values
-
-    # Train, Val, Test split of 70/15/15
-    X_trainval, X_test, Y_trainval, Y_test = train_test_split(X, Y, test_size=0.15, random_state=42)
-    X_train, X_val, Y_train, Y_val = train_test_split(X_trainval, Y_trainval, test_size=0.17, random_state=42)
+    Y = raw_train_data[cfg.data.label_names].values
     
-    # Compute property statistics across all data, may introduce slight leakage
-    # In more complex validation schemes, each train/val/test split should use their own statistics in the loss function
+    # Train, Val, Test split
+    X_trainval, X_test, Y_trainval, Y_test = train_test_split(
+        X, Y, 
+        test_size=cfg.data.test_size, 
+        random_state=cfg.data.random_state
+    )
+    X_train, X_val, Y_train, Y_val = train_test_split(
+        X_trainval, Y_trainval, 
+        test_size=cfg.data.val_size, 
+        random_state=cfg.data.random_state
+    )
+    
+    print(f"Train size: {len(X_train)}")
+    print(f"Val size: {len(X_val)}")
+    print(f"Test size: {len(X_test)}")
+    
+    # =================== Loss Function Setup ===================
+    # Compute property statistics for loss function
     property_ranges = torch.tensor([
         np.nanmax(Y[:, i]) - np.nanmin(Y[:, i]) 
         for i in range(Y.shape[1])
@@ -140,26 +133,103 @@ if __name__ == "__main__":
         np.sum(~np.isnan(Y[:, i])) 
         for i in range(Y.shape[1])
     ], dtype=torch.float32)
-    # Initialize loss function based on statistics
-    LOSS_FN = WeightedMAELoss(property_ranges, num_samples_per_property)
-
-    # Preprocess data
-    # Fit the preprocessor on training data and transform all datasets
-    X_train = PREPROCESSOR.fit_transform(X_train)
-    X_val = PREPROCESSOR.transform(X_val)
-    X_test = PREPROCESSOR.transform(X_test)
     
+    # Instantiate loss function with computed statistics
+    loss_fn = WeightedMAELoss(property_ranges, num_samples_per_property)
+    print(f"\nLoss function initialized with property ranges: {property_ranges}")
+    
+    # =================== Preprocessing ===================
+    print(f"\nInstantiating preprocessor: {cfg.preprocessing._target_}")
+    preprocessor = instantiate(cfg.preprocessing)
+    print("\nPreprocessing data...")
+    X_train = preprocessor.fit_transform(X_train)
+    X_val = preprocessor.transform(X_val)
+    X_test = preprocessor.transform(X_test)
+    
+    # Create datasets
     train_dataset = GraphDataset(X_train, Y_train)
     val_dataset = GraphDataset(X_val, Y_val)
     test_dataset = GraphDataset(X_test, Y_test)
+    
+    # Create dataloaders
+    train_dataloader = DataLoader(
+        train_dataset, 
+        batch_size=cfg.data.batch_size, 
+        shuffle=True,
+        num_workers=cfg.data.num_workers,
+        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+    )
+    val_dataloader = DataLoader(
+        val_dataset, 
+        batch_size=cfg.data.batch_size,
+        num_workers=cfg.data.num_workers,
+        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+    )
+    test_dataloader = DataLoader(
+        test_dataset, 
+        batch_size=cfg.data.batch_size,
+        num_workers=cfg.data.num_workers,
+        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+    )
+    
+    # =================== Model Instantiation ===================
+    print(f"\nInstantiating model: {cfg.model._target_}")
+    model = instantiate(cfg.model)
+    print(f"Model architecture:\n{model}")
+    
+    # =================== Optimizer Instantiation ===================
+    print(f"\nInstantiating optimizer: {cfg.optimizer._target_}")
+    # Use partial instantiation to pass model parameters
+    optimizer = instantiate(cfg.optimizer)(model.parameters())
+    
+    # =================== Wandb Logger Setup ===================
+    print("\nSetting up Weights & Biases logger...")
+    # Convert config to dict for wandb
+    config_dict = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+    
+    # Add dataset sizes to config
+    config_dict['train_size'] = len(train_dataset)
+    config_dict['val_size'] = len(val_dataset)
+    config_dict['test_size'] = len(test_dataset)
+    
+    logger = WandbLogger(
+        project=cfg.wandb.project,
+        name=cfg.wandb.name if cfg.wandb.name else cfg.experiment_name,
+        save_dir=cfg.wandb.save_dir,
+        offline=cfg.wandb.offline,
+        log_model=cfg.wandb.log_model,
+        config=config_dict  # Pass full config to wandb
+    )
+    
+    # =================== Lightning Model ===================
+    lightning_model = LightningModel(
+        model=model,
+        optimizer=optimizer,
+        loss_fn=loss_fn,
+        batch_size=cfg.data.batch_size,
+        hparams=config_dict
+    )
+    
+    # =================== Trainer Setup ===================
+    print("\nSetting up PyTorch Lightning Trainer...")
+    trainer = pl.Trainer(**cfg.trainer, logger=logger)      # callbacks can be added via config if needed
+    
+    # =================== Training ===================
+    print("\n" + "="*60)
+    print("Starting training...")
+    print("="*60)
+    trainer.fit(lightning_model, train_dataloader, val_dataloader)
+    
+    # =================== Testing ===================
+    print("\n" + "="*60)
+    print("Starting testing...")
+    print("="*60)
+    trainer.test(lightning_model, test_dataloader)
+    
+    print("\n" + "="*60)
+    print("Training completed!")
+    print("="*60)
 
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, **DATALOADER_PARAMS)
-    val_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, **DATALOADER_PARAMS)
-    test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, **DATALOADER_PARAMS)
 
-    LIGHTNING_MODEL = LightningModel(MODEL, OPTIMIZER, LOSS_FN)
-
-    # Perform training, validation and testing
-    trainer = pl.Trainer(**TRAINER_PARAMS)
-    trainer.fit(LIGHTNING_MODEL, train_dataloader, val_dataloader)
-    trainer.test(LIGHTNING_MODEL, test_dataloader)
+if __name__ == "__main__":
+    main()
