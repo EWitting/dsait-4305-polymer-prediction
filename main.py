@@ -105,7 +105,12 @@ def main(cfg: DictConfig):
     
     X = raw_train_data['SMILES'].values
     Y = raw_train_data[cfg.data.label_names].values
-    
+
+    if cfg.normalize_labels == 'minmax':
+        Y = (Y - np.nanmin(Y, axis=0)) / (np.nanmax(Y, axis=0) - np.nanmin(Y, axis=0))
+    elif cfg.normalize_labels == 'standard':
+        Y = (Y - np.nanmean(Y, axis=0)) / np.nanstd(Y, axis=0)
+
     # Train, Val, Test split
     X_trainval, X_test, Y_trainval, Y_test = train_test_split(
         X, Y, 

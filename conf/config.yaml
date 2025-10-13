@@ -13,6 +13,9 @@ defaults:
 seed: null  # Set to an integer for reproducibility
 experiment_name: null  # Optional experiment name
 
+# Further configuration that does not belong to any of the above groups
+normalize_labels: minmax # False | minmax | standard
+
 # Hydra configuration
 hydra:
   run:
