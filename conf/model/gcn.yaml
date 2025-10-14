@@ -1,7 +1,11 @@
 # Simple GCN Model Configuration
 _target_: src.models.gcn.SimpleGCN
 
-in_channels: 43  # Number of node features
-hidden_channels: 128
+in_channels: 9  # Number of node features
+hidden_channels: [64,128,128,128,128,64]
 out_channels: 5  # Number of target properties to predict
-
+activation:
+  _target_: torch.nn.ReLU
+improved: true
+use_layer_norm: true
+dropout: 0.1

@@ -1,0 +1,80 @@
+# WandB Sweep Configuration for GCN Model
+program: main.py
+project: polymer-prediction  # Change this to your desired WandB project name
+method: bayes  # Bayesian optimization for efficient hyperparameter search
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  # Model architecture hyperparameters - dimensions (keeping <= 256)
+  model.hidden_channels:
+    values: 
+      # Single layer
+      - [64]
+      - [128]
+      - [256]
+      # Two layers
+      - [128, 128]
+      - [256, 128]
+      - [128, 256]
+      - [256, 256]
+      # Three layers
+      - [128, 128, 128]
+      - [256, 128, 64]
+      - [128, 256, 128]
+      - [64, 128, 256]
+      - [256, 256, 256]
+      # Four layers
+      - [128, 128, 128, 128]
+      - [256, 256, 128, 64]
+      - [64, 128, 256, 128]
+      - [128, 256, 256, 128]
+      # Five layers - deeper architectures
+      - [128, 128, 128, 128, 128]
+      - [256, 256, 256, 128, 64]
+      - [64, 128, 256, 128, 64]
+      - [128, 256, 256, 256, 128]
+      # Six layers - very deep
+      - [128, 128, 128, 128, 128, 128]
+      - [64, 128, 128, 128, 128, 64]
+  
+  # Activation functions
+  model.activation._target_:
+    values: [torch.nn.ReLU, torch.nn.ELU, torch.nn.Mish]
+  
+  # GCNConv improved parameter
+  model.improved:
+    values: [true, false]
+  
+  # Layer normalization
+  model.use_layer_norm:
+    values: [true, false]
+  
+  # Dropout
+  model.dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+
+  # Fixed parameters
+  trainer.max_epochs:
+    value: 50
+
+# Fixed parameters (not swept) - keeping learning rate and batch size constant
+command:
+  - ${env}
+  - uv
+  - run
+  - ${program}
+  - model=gcn
+  - ${args_no_hyphens}
+
+# Early termination for poor performing runs
+early_terminate:
+  type: hyperband
+  min_iter: 3
+  eta: 2
+  s: 2
+
+

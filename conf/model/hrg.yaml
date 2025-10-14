@@ -20,7 +20,7 @@ block:
   _partial_: true # because it needs to be instantiated multipe times
   hidden_dim: ${..hidden_dim}
 
-  num_conv_layers: 2
+  num_conv_layers: 1
   conv_layer:
     _target_: torch_geometric.nn.GCNConv
     _partial_: true
@@ -28,8 +28,8 @@ block:
     out_channels: ${...hidden_dim}
     improved: true
 
-  num_attention_layers: 1
-  attention_heads: 8
+  num_attention_layers: 2
+  attention_heads: 4
   attention_layer:
     _target_: torch_geometric.nn.GATv2Conv
     _partial_: true
