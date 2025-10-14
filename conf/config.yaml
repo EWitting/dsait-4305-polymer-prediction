@@ -2,7 +2,7 @@
 defaults:
   - model: gat
   - optimizer: adam
-  - scheduler: cosine_annealing
+  - scheduler: null
   - trainer: default
   - data: default
   - loss: weighted_mae

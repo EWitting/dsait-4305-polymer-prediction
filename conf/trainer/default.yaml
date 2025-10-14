@@ -4,6 +4,8 @@ accelerator: gpu
 devices: auto
 log_every_n_steps: 50
 
+enable_checkpointing: false
+
 # Uncomment to enable early stopping
 # callbacks:
 #   - _target_: lightning.pytorch.callbacks.EarlyStopping

@@ -1,0 +1,3 @@
+# null scheduler - no learning rate scheduling
+_target_: null
+

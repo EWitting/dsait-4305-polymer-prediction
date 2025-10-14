@@ -80,9 +80,9 @@ class LightningModel(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.scheduler is not None:
-            return {'optimizer': self.optimizer, 'scheduler': self.scheduler}
+            return [self.optimizer], [self.scheduler]
         else:
-            return {'optimizer': self.optimizer}
+            return [self.optimizer]
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -192,11 +192,12 @@ def main(cfg: DictConfig):
     optimizer = instantiate(cfg.optimizer)(model.parameters())
 
     # =================== Scheduler Instantiation ===================
-    if cfg.scheduler is not None:
+    if "scheduler" in cfg and cfg.scheduler is not None and cfg.scheduler.get("_target_") is not None:
         print(f"\nInstantiating scheduler: {cfg.scheduler._target_}")
         scheduler = instantiate(cfg.scheduler)(optimizer)
     else:
         scheduler = None
+        print("\nNo scheduler selected")
     
     # =================== Wandb Logger Setup ===================
     print("\nSetting up Weights & Biases logger...")
