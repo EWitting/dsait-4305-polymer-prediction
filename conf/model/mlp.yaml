@@ -1,0 +1,14 @@
+_target_: src.models.mlp.SimpleMLP
+
+# Model I/O sizes
+in_channels: 9                    # number of node features per node (input dim)
+hidden_channels: [400]    # updated to best-performing architecture found in local sweep
+out_channels: 5                   # final output dim (number of target properties)
+
+# Activation: specify a callable by its import path
+activation:
+  _target_: torch.nn.ReLU
+
+# Optional featuresí
+use_layer_norm: true              # whether to apply LayerNorm after each linear layer
+dropout: 0.1                      # dropout probability (0.0 disables dropout)
