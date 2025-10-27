@@ -94,7 +94,7 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     """Train a single fold and return metrics."""
     
     # Preprocess data
-    X_train_processed = preprocessor.fit_transform(X_train) if fold_idx is not None else X_train
+    X_train_processed = preprocessor.fit_transform(X_train)
     X_val_processed = preprocessor.transform(X_val) if X_val is not None else None
     X_test_processed = preprocessor.transform(X_test) if X_test is not None else None
     
@@ -300,13 +300,7 @@ def main(cfg: DictConfig):
         print(f"Train size: {len(X_train)}")
         print(f"Val size: {len(X_val)}")
         
-        # Preprocess once
-        X_train = preprocessor.fit_transform(X_train)
-        X_val = preprocessor.transform(X_val)
-        if X_test is not None:
-            X_test = preprocessor.transform(X_test)
-        
-        # Run training
+        # Run training (preprocessing happens inside train_fold)
         metrics = train_fold(
             cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
             preprocessor, property_ranges, num_samples_per_property,
