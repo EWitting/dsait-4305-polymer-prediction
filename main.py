@@ -7,7 +7,7 @@ import warnings
 from sklearn.model_selection import train_test_split
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader as TorchDataLoader, TensorDataset
 from torch_geometric.loader import DataLoader
 
 import lightning.pytorch as pl
@@ -155,27 +155,37 @@ def main(cfg: DictConfig):
     X_val = preprocessor.transform(X_val)
     X_test = preprocessor.transform(X_test)
     
-    # Create datasets
-    train_dataset = GraphDataset(X_train, Y_train)
-    val_dataset = GraphDataset(X_val, Y_val)
-    test_dataset = GraphDataset(X_test, Y_test)
+    # Create datasets based on dataset type
+    dataset_type = cfg.data.get('dataset_type', 'graph')
+    dataset_cls = GraphDataset if dataset_type == 'graph' else TensorDataset
     
-    # Create dataloaders
-    train_dataloader = DataLoader(
+    # Convert Y to tensors if using tensor dataset
+    if dataset_type == 'tensor':
+        Y_train = torch.tensor(Y_train, dtype=torch.float32)
+        Y_val = torch.tensor(Y_val, dtype=torch.float32)
+        Y_test = torch.tensor(Y_test, dtype=torch.float32)
+    
+    train_dataset = dataset_cls(X_train, Y_train)
+    val_dataset = dataset_cls(X_val, Y_val)
+    test_dataset = dataset_cls(X_test, Y_test)
+    
+    # Create dataloaders based on dataset type
+    dataloader_cls = TorchDataLoader if dataset_type == 'tensor' else DataLoader
+    train_dataloader = dataloader_cls(
         train_dataset, 
         batch_size=cfg.data.batch_size, 
         shuffle=True,
         num_workers=cfg.data.num_workers,
         persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
     )
-    val_dataloader = DataLoader(
-        val_dataset, 
+    test_dataloader = dataloader_cls(
+        test_dataset, 
         batch_size=cfg.data.batch_size,
         num_workers=cfg.data.num_workers,
         persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
     )
-    test_dataloader = DataLoader(
-        test_dataset, 
+    val_dataloader = dataloader_cls(
+        val_dataset, 
         batch_size=cfg.data.batch_size,
         num_workers=cfg.data.num_workers,
         persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False

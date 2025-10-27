@@ -15,6 +15,9 @@ test_size: 0.15
 val_size: 0.17  # Proportion of remaining data after test split
 random_state: 42
 
+# Dataset type: 'graph' for GraphDataset (PyG Data objects) or 'tensor' for TensorDataset (flat tensors)
+dataset_type: graph  # default is graph
+
 # DataLoader configuration
 batch_size: 64
 num_workers: 0  # Set to 0 for Windows compatibility

@@ -1,0 +1,15 @@
+_target_: src.models.mlp.GraphMLP
+
+# Model I/O sizes for RDKit descriptors (217 descriptors total)
+in_channels: 217                    # RDKit molecular descriptors (flat features)
+hidden_channels: [400]    # hidden layer architecture
+out_channels: 5                   # final output dim (number of target properties)
+
+# Activation: specify a callable by its import path
+activation:
+  _target_: torch.nn.ReLU
+
+# Optional features
+use_layer_norm: true              # whether to apply LayerNorm after each linear layer
+dropout: 0.1                      # dropout probability (0.0 disables dropout)
+

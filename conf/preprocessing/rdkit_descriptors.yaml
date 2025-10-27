@@ -1,0 +1,6 @@
+# RDKit Descriptors Preprocessor Configuration
+_target_: src.preprocessing.rdkit_descriptors.RDKitDescriptorsPreprocessor
+
+# No additional parameters required
+# Computes all available RDKit molecular descriptors and scales them
+

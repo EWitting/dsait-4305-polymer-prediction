@@ -1,4 +1,4 @@
-_target_: src.models.mlp.SimpleMLP
+_target_: src.models.mlp.NodeMLP
 
 # Model I/O sizes
 in_channels: 9                    # number of node features per node (input dim)
@@ -9,6 +9,6 @@ out_channels: 5                   # final output dim (number of target propertie
 activation:
   _target_: torch.nn.ReLU
 
-# Optional featuresí
+# Optional features
 use_layer_norm: true              # whether to apply LayerNorm after each linear layer
 dropout: 0.1                      # dropout probability (0.0 disables dropout)
