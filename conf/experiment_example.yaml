@@ -14,7 +14,6 @@ defaults:
   - override /optimizer: adam
 
 # Experiment identification
-experiment_name: "gat-large-sweep"
 seed: 42
 
 # Model configuration overrides

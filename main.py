@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import random
 import warnings
-from sklearn.model_selection import train_test_split
+import wandb
+from sklearn.model_selection import train_test_split, KFold
 
 import torch
 from torch.utils.data import Dataset, DataLoader as TorchDataLoader, TensorDataset
@@ -16,6 +17,8 @@ from lightning.pytorch.loggers import WandbLogger
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
+
+import petname
 
 from src.loss.masked_loss import WeightedMAELoss
 
@@ -85,6 +88,106 @@ class LightningModel(pl.LightningModule):
             return [self.optimizer]
 
 
+def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test, 
+               preprocessor, property_ranges, num_samples_per_property, 
+               experiment_name, fold_idx=None, cv_group_name=None):
+    """Train a single fold and return metrics."""
+    
+    # Preprocess data
+    X_train_processed = preprocessor.fit_transform(X_train) if fold_idx is not None else X_train
+    X_val_processed = preprocessor.transform(X_val) if X_val is not None else None
+    X_test_processed = preprocessor.transform(X_test) if X_test is not None else None
+    
+    # Create datasets
+    dataset_type = cfg.data.get('dataset_type', 'graph')
+    dataset_cls = GraphDataset if dataset_type == 'graph' else TensorDataset
+    
+    if dataset_type == 'tensor':
+        Y_train = torch.tensor(Y_train, dtype=torch.float32)
+        Y_val = torch.tensor(Y_val, dtype=torch.float32) if Y_val is not None else None
+        Y_test = torch.tensor(Y_test, dtype=torch.float32) if Y_test is not None else None
+    
+    train_dataset = dataset_cls(X_train_processed, Y_train)
+    val_dataset = dataset_cls(X_val_processed, Y_val) if X_val is not None else None
+    test_dataset = dataset_cls(X_test_processed, Y_test) if X_test is not None else None
+    
+    # Create dataloaders
+    dataloader_cls = TorchDataLoader if dataset_type == 'tensor' else DataLoader
+    train_dataloader = dataloader_cls(
+        train_dataset, batch_size=cfg.data.batch_size, shuffle=True,
+        num_workers=cfg.data.num_workers,
+        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+    )
+    val_dataloader = dataloader_cls(
+        val_dataset, batch_size=cfg.data.batch_size,
+        num_workers=cfg.data.num_workers,
+        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+    ) if val_dataset is not None else None
+    test_dataloader = dataloader_cls(
+        test_dataset, batch_size=cfg.data.batch_size,
+        num_workers=cfg.data.num_workers,
+        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+    ) if test_dataset is not None else None
+    
+    # Instantiate model, optimizer, scheduler
+    model = instantiate(cfg.model)
+    optimizer = instantiate(cfg.optimizer)(model.parameters())
+    
+    # Handle scheduler - it might be None/null in config
+    scheduler = None
+    if "scheduler" in cfg and cfg.scheduler is not None:
+        scheduler_obj = instantiate(cfg.scheduler)
+        scheduler = scheduler_obj(optimizer) if callable(scheduler_obj) else scheduler_obj
+    
+    # Setup wandb logger
+    config_dict = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+    config_dict['train_size'] = len(train_dataset)
+    config_dict['val_size'] = len(val_dataset) if val_dataset is not None else 0
+    config_dict['test_size'] = len(test_dataset) if test_dataset is not None else 0
+    if fold_idx is not None:
+        config_dict['fold'] = fold_idx
+    
+    # Generate run name
+    run_name = f"{experiment_name}_fold{fold_idx}" if fold_idx is not None else experiment_name
+    
+    wandb.finish()
+    logger = WandbLogger(
+        project=cfg.wandb.project,
+        name=run_name,
+        group=cv_group_name if cv_group_name else None,
+        save_dir=cfg.wandb.save_dir,
+        offline=cfg.wandb.offline,
+        log_model=cfg.wandb.log_model,
+        config=config_dict
+    )
+    
+    # Create lightning model and trainer
+    loss_fn = WeightedMAELoss(property_ranges, num_samples_per_property)
+    lightning_model = LightningModel(
+        model=model, optimizer=optimizer, scheduler=scheduler,
+        loss_fn=loss_fn, batch_size=cfg.data.batch_size, hparams=config_dict
+    )
+    trainer = pl.Trainer(**cfg.trainer, logger=logger)
+    
+    # Train and test
+    trainer.fit(lightning_model, train_dataloader, val_dataloader)
+    
+    # Get final metrics
+    metrics = {}
+    train_results = trainer.callback_metrics
+    metrics['train_score'] = train_results.get('train_loss', torch.tensor(0.0)).item() if train_results else 0.0
+    
+    if val_dataloader is not None:
+        val_results = trainer.callback_metrics
+        metrics['val_score'] = val_results.get('val_loss', torch.tensor(0.0)).item() if val_results else 0.0
+    
+    if test_dataloader is not None:
+        test_results = trainer.test(lightning_model, test_dataloader)
+        metrics['test_score'] = test_results[0].get('test_loss', 0.0) if test_results else 0.0
+    
+    return metrics
+
+
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     """Main training function using Hydra configuration."""
@@ -110,153 +213,115 @@ def main(cfg: DictConfig):
     X = raw_train_data['SMILES'].values
     Y = raw_train_data[cfg.data.label_names].values
 
+    # Normalize labels
     if cfg.normalize_labels == 'minmax':
         Y = (Y - np.nanmin(Y, axis=0)) / (np.nanmax(Y, axis=0) - np.nanmin(Y, axis=0))
     elif cfg.normalize_labels == 'standard':
         Y = (Y - np.nanmean(Y, axis=0)) / np.nanstd(Y, axis=0)
 
-    # Train, Val, Test split
-    X_trainval, X_test, Y_trainval, Y_test = train_test_split(
-        X, Y, 
-        test_size=cfg.data.test_size, 
-        random_state=cfg.data.random_state
-    )
-    X_train, X_val, Y_train, Y_val = train_test_split(
-        X_trainval, Y_trainval, 
-        test_size=cfg.data.val_size, 
-        random_state=cfg.data.random_state
-    )
-    
-    print(f"Train size: {len(X_train)}")
-    print(f"Val size: {len(X_val)}")
-    print(f"Test size: {len(X_test)}")
-    
-    # =================== Loss Function Setup ===================
     # Compute property statistics for loss function
     property_ranges = torch.tensor([
         np.nanmax(Y[:, i]) - np.nanmin(Y[:, i]) 
         for i in range(Y.shape[1])
     ], dtype=torch.float32)
-    
     num_samples_per_property = torch.tensor([
         np.sum(~np.isnan(Y[:, i])) 
         for i in range(Y.shape[1])
     ], dtype=torch.float32)
     
-    # Instantiate loss function with computed statistics
-    loss_fn = WeightedMAELoss(property_ranges, num_samples_per_property)
-    print(f"\nLoss function initialized with property ranges: {property_ranges}")
+    # Split test set
+    X_trainval = X
+    Y_trainval = Y
+    X_test = None
+    Y_test = None
     
-    # =================== Preprocessing ===================
+    if cfg.data.test_split > 0:
+        X_trainval, X_test, Y_trainval, Y_test = train_test_split(
+            X, Y, test_size=cfg.data.test_split, random_state=cfg.data.random_state
+        )
+        print(f"Test size: {len(X_test)}")
+    
+    # Instantiate preprocessor
     print(f"\nInstantiating preprocessor: {cfg.preprocessing._target_}")
     preprocessor = instantiate(cfg.preprocessing)
-    print("\nPreprocessing data...")
-    X_train = preprocessor.fit_transform(X_train)
-    X_val = preprocessor.transform(X_val)
-    X_test = preprocessor.transform(X_test)
     
-    # Create datasets based on dataset type
-    dataset_type = cfg.data.get('dataset_type', 'graph')
-    dataset_cls = GraphDataset if dataset_type == 'graph' else TensorDataset
-    
-    # Convert Y to tensors if using tensor dataset
-    if dataset_type == 'tensor':
-        Y_train = torch.tensor(Y_train, dtype=torch.float32)
-        Y_val = torch.tensor(Y_val, dtype=torch.float32)
-        Y_test = torch.tensor(Y_test, dtype=torch.float32)
-    
-    train_dataset = dataset_cls(X_train, Y_train)
-    val_dataset = dataset_cls(X_val, Y_val)
-    test_dataset = dataset_cls(X_test, Y_test)
-    
-    # Create dataloaders based on dataset type
-    dataloader_cls = TorchDataLoader if dataset_type == 'tensor' else DataLoader
-    train_dataloader = dataloader_cls(
-        train_dataset, 
-        batch_size=cfg.data.batch_size, 
-        shuffle=True,
-        num_workers=cfg.data.num_workers,
-        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
-    )
-    test_dataloader = dataloader_cls(
-        test_dataset, 
-        batch_size=cfg.data.batch_size,
-        num_workers=cfg.data.num_workers,
-        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
-    )
-    val_dataloader = dataloader_cls(
-        val_dataset, 
-        batch_size=cfg.data.batch_size,
-        num_workers=cfg.data.num_workers,
-        persistent_workers=cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
-    )
-    
-    # =================== Model Instantiation ===================
-    print(f"\nInstantiating model: {cfg.model._target_}")
-    model = instantiate(cfg.model)
-    print(f"Model architecture:\n{model}")
-    
-    # =================== Optimizer Instantiation ===================
-    print(f"\nInstantiating optimizer: {cfg.optimizer._target_}")
-    # Use partial instantiation to pass model parameters
-    optimizer = instantiate(cfg.optimizer)(model.parameters())
-
-    # =================== Scheduler Instantiation ===================
-    if "scheduler" in cfg and cfg.scheduler is not None and cfg.scheduler.get("_target_") is not None:
-        print(f"\nInstantiating scheduler: {cfg.scheduler._target_}")
-        scheduler = instantiate(cfg.scheduler)(optimizer)
+    # Run cross-validation or single train-val-test split
+    if cfg.crossval:
+        print(f"\n{'='*60}")
+        print(f"Cross-Validation Mode ({cfg.data.n_splits} folds)")
+        print('='*60)
+        
+        # Generate CV group name
+        experiment_name = cfg.wandb.name if cfg.wandb.name else petname.generate(3, separator='-')
+        cv_group_name = f"{experiment_name}_cv"
+        cv = KFold(n_splits=cfg.data.n_splits, shuffle=True, random_state=cfg.data.random_state)
+        fold_metrics = []
+        
+        for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X_trainval)):
+            print(f"\nFold {fold_idx + 1}/{cfg.data.n_splits}")
+            print('-'*60)
+            
+            X_train = X_trainval[train_idx]
+            Y_train = Y_trainval[train_idx]
+            X_val = X_trainval[val_idx]
+            Y_val = Y_trainval[val_idx]
+            
+            metrics = train_fold(
+                cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
+                preprocessor, property_ranges, num_samples_per_property,
+                experiment_name, fold_idx=fold_idx, cv_group_name=cv_group_name
+            )
+            fold_metrics.append(metrics)
+            print(f"Fold {fold_idx + 1} metrics: {metrics}")
+        
+        # Aggregate results
+        avg_metrics = {}
+        for key in fold_metrics[0].keys():
+            avg_metrics[key] = np.mean([m[key] for m in fold_metrics])
+        
+        print(f"\n{'='*60}")
+        print("Cross-Validation Results (averaged over folds):")
+        print('='*60)
+        for key, value in avg_metrics.items():
+            print(f"{key}: {value:.4f}")
+        
     else:
-        scheduler = None
-        print("\nNo scheduler selected")
+        print(f"\n{'='*60}")
+        print("Standard Train-Val-Test Split")
+        print('='*60)
+        
+        # Generate experiment name
+        experiment_name = cfg.wandb.name if cfg.wandb.name else petname.generate(3, separator='-')
+        
+        X_train, X_val, Y_train, Y_val = train_test_split(
+            X_trainval, Y_trainval, test_size=cfg.data.val_size, 
+            random_state=cfg.data.random_state
+        )
+        print(f"Train size: {len(X_train)}")
+        print(f"Val size: {len(X_val)}")
+        
+        # Preprocess once
+        X_train = preprocessor.fit_transform(X_train)
+        X_val = preprocessor.transform(X_val)
+        if X_test is not None:
+            X_test = preprocessor.transform(X_test)
+        
+        # Run training
+        metrics = train_fold(
+            cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
+            preprocessor, property_ranges, num_samples_per_property,
+            experiment_name, fold_idx=None, cv_group_name=None
+        )
+        
+        print(f"\n{'='*60}")
+        print("Final Metrics:")
+        print('='*60)
+        for key, value in metrics.items():
+            print(f"{key}: {value:.4f}")
     
-    # =================== Wandb Logger Setup ===================
-    print("\nSetting up Weights & Biases logger...")
-    # Convert config to dict for wandb
-    config_dict = OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
-    
-    # Add dataset sizes to config
-    config_dict['train_size'] = len(train_dataset)
-    config_dict['val_size'] = len(val_dataset)
-    config_dict['test_size'] = len(test_dataset)
-    
-    logger = WandbLogger(
-        project=cfg.wandb.project,
-        name=cfg.wandb.name if cfg.wandb.name else cfg.experiment_name,
-        save_dir=cfg.wandb.save_dir,
-        offline=cfg.wandb.offline,
-        log_model=cfg.wandb.log_model,
-        config=config_dict  # Pass full config to wandb
-    )
-    
-    # =================== Lightning Model ===================
-    lightning_model = LightningModel(
-        model=model,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        loss_fn=loss_fn,
-        batch_size=cfg.data.batch_size,
-        hparams=config_dict
-    )
-    
-    # =================== Trainer Setup ===================
-    print("\nSetting up PyTorch Lightning Trainer...")
-    trainer = pl.Trainer(**cfg.trainer, logger=logger)      # callbacks can be added via config if needed
-    
-    # =================== Training ===================
-    print("\n" + "="*60)
-    print("Starting training...")
-    print("="*60)
-    trainer.fit(lightning_model, train_dataloader, val_dataloader)
-    
-    # =================== Testing ===================
-    print("\n" + "="*60)
-    print("Starting testing...")
-    print("="*60)
-    trainer.test(lightning_model, test_dataloader)
-    
-    print("\n" + "="*60)
+    print(f"\n{'='*60}")
     print("Training completed!")
-    print("="*60)
+    print('='*60)
 
 
 if __name__ == "__main__":
