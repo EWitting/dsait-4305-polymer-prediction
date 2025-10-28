@@ -58,6 +58,19 @@ class PolyBERTDataset(Dataset):
             'attention_mask': self.attention_mask[idx],
             'labels': self.labels[idx]
         }
+        
+        
+class DescGraphDataset(Dataset):
+    def __init__(self, graphs, labels, descs=None):
+        self.graphs = graphs
+        self.descs = descs
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+    
+    def __len__(self):
+        return len(self.graphs)
+    
+    def __getitem__(self, idx):
+        return self.graphs[idx], self.descs[idx, :], self.labels[idx]
 
 
 # Wrap the model in a LightningModule
@@ -110,14 +123,21 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     """Train a single fold and return metrics."""
     
     # Preprocess data
-    X_train_processed = preprocessor.fit_transform(X_train)
-    X_val_processed = preprocessor.transform(X_val) if X_val is not None else None
-    X_test_processed = preprocessor.transform(X_test) if X_test is not None else None
+    if cfg.data.dataset_type == '3d':
+        X_train_processed = X_train
+        X_val_processed = X_val
+        X_test_processed = X_test
+    else:
+        X_train_processed = preprocessor.fit_transform(X_train)
+        X_val_processed = preprocessor.transform(X_val) if X_val is not None else None
+        X_test_processed = preprocessor.transform(X_test) if X_test is not None else None
     
     # Create datasets
     dataset_type = cfg.data.get('dataset_type', 'graph')
 
     if dataset_type == 'graph':
+        dataset_cls = GraphDataset
+    elif dataset_type == '3d':
         dataset_cls = GraphDataset
     elif dataset_type == 'polybert':
         dataset_cls = PolyBERTDataset
@@ -242,10 +262,20 @@ def main(cfg: DictConfig):
     # =================== Data Loading ===================
     print("\nLoading data...")
     data_path = os.path.join(cfg.data.data_dir, cfg.data.train_file)
-    raw_train_data = pd.read_csv(data_path)
-    
-    X = raw_train_data['SMILES'].values
-    Y = raw_train_data[cfg.data.label_names].values
+    if cfg.data.dataset_type == "3d":
+        print('Loading pickle...')
+        raw_train_data = pd.read_pickle(data_path)
+        graph_descriptors = None
+        if cfg.data.compute_desc:
+            from src.preprocessing.rdkit_descriptors import RDKitDescriptorsPreprocessor
+            graph_descriptors = RDKitDescriptorsPreprocessor().fit_transform(raw_train_data['SMILES'])
+        # for now just one graph TODO: multigraph and adding descriptors
+        X = raw_train_data[cfg.data.intervals[0]].values
+        Y = raw_train_data[cfg.data.label_names].values
+    else:
+        raw_train_data = pd.read_csv(data_path)
+        X = raw_train_data['SMILES'].values
+        Y = raw_train_data[cfg.data.label_names].values
 
     # Normalize labels
     if cfg.normalize_labels == 'minmax':

@@ -22,3 +22,5 @@ multirun/
 
 # wandb
 wandb/
+/reprs.pl
+data/processed

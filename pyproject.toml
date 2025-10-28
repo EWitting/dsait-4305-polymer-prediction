@@ -21,6 +21,7 @@ dependencies = [
     "torch-geometric>=2.6.1",
     "tqdm>=4.67.1",
     "wandb>=0.22.2",
+    "huggingface-hub>=0.36.0",
 ]
 
 

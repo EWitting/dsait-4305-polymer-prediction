@@ -1,6 +1,8 @@
 # Data Configuration
-data_dir: "data/raw"
-train_file: "train.csv"
+data_dir: "data/processed"
+train_file: "train_processed.pkl"
+intervals: ["graph_[2A-4A]"] # can be a list also
+compute_desc: false
 
 # Target properties to predict
 label_names:
@@ -17,7 +19,7 @@ random_state: 42
 n_splits: 5  # Number of folds for cross-validation
 
 # Dataset type: 'graph' for GraphDataset (PyG Data objects) or 'tensor' for TensorDataset (flat tensors)
-dataset_type: graph  # default is graph, for PolyBERT use 'polybert', 3d for 3d
+dataset_type: 3d  # default is graph, for PolyBERT use 'polybert', 3d for 3d
 
 
 # DataLoader configuration

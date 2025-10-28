@@ -1,0 +1,19 @@
+2025-10-27 22:27:04 | unimol_tools\models\unimol.py | 167 | INFO | Uni-Mol Tools | Loading pretrained weights from c:\Users\garga\Documents\Uni\DSAIT4305\dsait-4305-polymer-prediction\.venv\Lib\site-packages\unimol_tools\weights\mol_pre_all_h_220816.pt
+2025-10-27 22:27:05 | unimol_tools\data\conformer.py | 182 | INFO | Uni-Mol Tools | Start generating conformers...
+2025-10-27 22:27:11 | unimol_tools\data\conformer.py | 197 | INFO | Uni-Mol Tools | Succeeded in generating conformers for 100.00% of molecules.
+2025-10-27 22:27:11 | unimol_tools\data\conformer.py | 214 | INFO | Uni-Mol Tools | Succeeded in generating 3d conformers for 100.00% of molecules.
+2025-10-27 22:27:11 | unimol_tools\tasks\trainer.py | 78 | INFO | Uni-Mol Tools | Number of GPUs available: 1
+2025-10-27 22:27:11 | unimol_tools\tasks\trainer.py | 98 | INFO | Uni-Mol Tools | Using single GPU.
+2025-10-27 22:53:06 | unimol_tools\data\conformer.py | 182 | INFO | Uni-Mol Tools | Start generating conformers...
+2025-10-27 23:09:08 | unimol_tools\data\conformer.py | 197 | INFO | Uni-Mol Tools | Succeeded in generating conformers for 99.94% of molecules.
+2025-10-27 23:09:08 | unimol_tools\data\conformer.py | 206 | INFO | Uni-Mol Tools | Failed conformers indices: [2563, 2644, 2758, 5576, 6395]
+2025-10-27 23:09:08 | unimol_tools\data\conformer.py | 214 | INFO | Uni-Mol Tools | Succeeded in generating 3d conformers for 99.16% of molecules.
+2025-10-27 23:09:08 | unimol_tools\data\conformer.py | 223 | INFO | Uni-Mol Tools | Failed 3d conformers indices: [67, 343, 812, 856, 891, 987, 1019, 1232, 1539, 1569, 1678, 1730, 1739, 1760, 2004, 2095, 2097, 2172, 2182, 2220, 2349, 2353, 2382, 2464, 2563, 2644, 2758, 2861, 2987, 3083, 3131, 3165, 3172, 3295, 3389, 3604, 3659, 3815, 3953, 4189, 4321, 4836, 4991, 5062, 5110, 5502, 5532, 5544, 5575, 5576, 5690, 5774, 5839, 5845, 6023, 6062, 6395, 6451, 6456, 6494, 6656, 6726, 6737, 6840, 7414, 7492, 7865]
+2025-10-27 23:09:08 | unimol_tools\tasks\trainer.py | 78 | INFO | Uni-Mol Tools | Number of GPUs available: 1
+2025-10-27 23:09:08 | unimol_tools\tasks\trainer.py | 98 | INFO | Uni-Mol Tools | Using single GPU.
+2025-10-28 00:59:53 | unimol_tools\data\conformer.py | 182 | INFO | Uni-Mol Tools | Start generating conformers...
+2025-10-28 01:16:31 | unimol_tools\data\conformer.py | 197 | INFO | Uni-Mol Tools | Succeeded in generating conformers for 100.00% of molecules.
+2025-10-28 01:16:31 | unimol_tools\data\conformer.py | 214 | INFO | Uni-Mol Tools | Succeeded in generating 3d conformers for 99.22% of molecules.
+2025-10-28 01:16:31 | unimol_tools\data\conformer.py | 223 | INFO | Uni-Mol Tools | Failed 3d conformers indices: [67, 343, 812, 856, 891, 987, 1019, 1232, 1539, 1569, 1678, 1730, 1739, 1760, 2004, 2095, 2097, 2172, 2182, 2220, 2349, 2353, 2382, 2464, 2861, 2987, 3083, 3131, 3165, 3172, 3295, 3389, 3604, 3659, 3815, 3953, 4189, 4321, 4836, 4991, 5062, 5110, 5502, 5532, 5544, 5575, 5690, 5774, 5839, 5845, 6023, 6062, 6451, 6456, 6494, 6656, 6726, 6737, 6840, 7414, 7492, 7865]
+2025-10-28 01:16:32 | unimol_tools\tasks\trainer.py | 78 | INFO | Uni-Mol Tools | Number of GPUs available: 1
+2025-10-28 01:16:32 | unimol_tools\tasks\trainer.py | 98 | INFO | Uni-Mol Tools | Using single GPU.

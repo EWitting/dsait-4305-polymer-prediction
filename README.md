@@ -1,6 +1,6 @@
 # Setup
 
-1. Download uv from [here](https://docs.astral.sh/uv/getting-started/installation/). Run `uv sync` to install the dependencies.
+1. Download uv from [here](https://docs.astral.sh/uv/getting-started/installation/). Run `uv sync` to install the dependencies. You need to manually install some dependencies such unimol_tools and huggingface_hub using `uv pip install`.
 2. Join the competition on Kaggle [here](https://www.kaggle.com/competitions/neurips-open-polymer-prediction-2025). Download all data and unzip it into data/raw.
 
 # Usage
