@@ -42,6 +42,22 @@ class GraphDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.graphs[idx], self.labels[idx]
+    
+class PolyBERTDataset(Dataset):
+    def __init__(self, graphs, labels):
+        self.input_ids = graphs['input_ids']
+        self.attention_mask = graphs['attention_mask']
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return {
+            'input_ids': self.input_ids[idx],
+            'attention_mask': self.attention_mask[idx],
+            'labels': self.labels[idx]
+        }
 
 
 # Wrap the model in a LightningModule
@@ -100,7 +116,13 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     
     # Create datasets
     dataset_type = cfg.data.get('dataset_type', 'graph')
-    dataset_cls = GraphDataset if dataset_type == 'graph' else TensorDataset
+
+    if dataset_type == 'graph':
+        dataset_cls = GraphDataset
+    elif dataset_type == 'polybert':
+        dataset_cls = PolyBERTDataset
+    else:
+        dataset_cls = TensorDataset
     
     if dataset_type == 'tensor':
         Y_train = torch.tensor(Y_train, dtype=torch.float32)
@@ -112,7 +134,10 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     test_dataset = dataset_cls(X_test_processed, Y_test) if X_test is not None else None
     
     # Create dataloaders
-    dataloader_cls = TorchDataLoader if dataset_type == 'tensor' else DataLoader
+    if dataset_type in ['tensor', 'polybert']:
+        dataloader_cls = TorchDataLoader
+    else:
+        dataloader_cls = DataLoader 
     train_dataloader = dataloader_cls(
         train_dataset, batch_size=cfg.data.batch_size, shuffle=True,
         num_workers=cfg.data.num_workers,
@@ -130,7 +155,13 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     ) if test_dataset is not None else None
     
     # Instantiate model, optimizer, scheduler
-    model = instantiate(cfg.model)
+    # If using PolyBERT, pass property_ranges and num_samples_per_property
+    if cfg.data.dataset_type.lower() == 'polybert':
+        model = instantiate(cfg.model, 
+                            property_ranges=property_ranges,
+                            num_samples_per_property=num_samples_per_property)
+    else:
+        model = instantiate(cfg.model)
     optimizer = instantiate(cfg.optimizer)(model.parameters())
     
     # Handle scheduler - it might be None/null in config
@@ -163,10 +194,13 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     
     # Create lightning model and trainer
     loss_fn = WeightedMAELoss(property_ranges, num_samples_per_property)
-    lightning_model = LightningModel(
-        model=model, optimizer=optimizer, scheduler=scheduler,
-        loss_fn=loss_fn, batch_size=cfg.data.batch_size, hparams=config_dict
-    )
+    if isinstance(model, pl.LightningModule):
+        lightning_model = model
+    else:
+        lightning_model = LightningModel(
+            model=model, optimizer=optimizer, scheduler=scheduler,
+            loss_fn=loss_fn, batch_size=cfg.data.batch_size, hparams=config_dict
+        )
     trainer = pl.Trainer(**cfg.trainer, logger=logger)
     
     # Train and test

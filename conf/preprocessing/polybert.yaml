@@ -1,0 +1,4 @@
+_target_: src.preprocessing.polyBERTpreprocess.PolyBERTPreprocessor
+
+model_name: "kuelumbus/polybert"
+max_length: 256
