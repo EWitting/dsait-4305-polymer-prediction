@@ -27,6 +27,12 @@ import torch.nn as nn
 from torch_geometric.nn import GATConv, GATv2Conv
 from torch_geometric.data import Data
 
+# Visualization / utility imports used by functions below
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+import networkx as nx
+from torch_geometric.utils import to_networkx
+
 
 def _register_capture_hooks(model: nn.Module):
     """Register forward-pre hooks on all GATConv/GATv2Conv modules.
@@ -208,30 +214,196 @@ def attention_node_importance(model: nn.Module, data: Data, head_pool: str = "me
     return {"per_module": per_module, "aggregated": agg}
 
 
-def visualize_node_importances(data: Data, scores: torch.Tensor, title: Optional[str] = None):
-    """Simple networkx/matplotlib visualization for node importances.
+def visualize_node_importance(
+	data: Data,
+	node_imp,
+	title: Optional[str] = None,
+	smiles: Optional[str] = None,
+	atom_symbols: Optional[list] = None,
+):
+	"""Visualize per-node importances on the molecular graph.
 
-    Accepts a torch_geometric `Data` object with `edge_index` and `num_nodes`.
+	Parameters
+	- data: torch_geometric.data.Data graph for a single molecule/graph
+	- node_imp: Tensor or array-like of shape [num_nodes] with per-node importance scores
+	- title: optional plot title
+	- smiles: optional SMILES string to attempt RDKit-based 2D coords and atom labels
+	- atom_symbols: optional list of atom symbol strings to use as labels
+
+	The function is robust: it tries RDKit for coordinates/labels if SMILES is provided
+	(or if `data` has `.smiles`), otherwise falls back to a spring layout. Node importances
+	are normalized and displayed as node colors with a colorbar.
+	"""
+	# Convert node_imp to numpy
+	try:
+		import numpy as _np
+
+		if torch.is_tensor(node_imp):
+			node_vals = node_imp.detach().cpu().numpy()
+		else:
+			node_vals = _np.asarray(node_imp)
+	except Exception:
+		# Last resort: try to coerce
+		node_vals = node_imp
+
+	# Build networkx graph (undirected for visualization)
+	G = to_networkx(data, to_undirected=True)
+
+	# Attempt RDKit positions and labels if smiles provided or available on data
+	pos = None
+	labels = None
+	rdkit_smiles = smiles
+	if rdkit_smiles is None and hasattr(data, "smiles"):
+		try:
+			rdkit_smiles = data.smiles
+		except Exception:
+			rdkit_smiles = None
+
+	if rdkit_smiles is not None:
+		try:
+			from rdkit import Chem
+			from rdkit.Chem import AllChem
+
+			mol = Chem.MolFromSmiles(str(rdkit_smiles))
+			if mol is not None:
+				AllChem.Compute2DCoords(mol)
+				conf = mol.GetConformer()
+				rdkit_pos = {atom.GetIdx(): (conf.GetAtomPosition(atom.GetIdx()).x, conf.GetAtomPosition(atom.GetIdx()).y) for atom in mol.GetAtoms()}
+				rdkit_labels = {atom.GetIdx(): atom.GetSymbol() for atom in mol.GetAtoms()}
+				if len(rdkit_pos) == G.number_of_nodes():
+					pos = rdkit_pos
+					labels = rdkit_labels
+		except Exception:
+			pos = None
+			labels = None
+
+	if pos is None:
+		pos = nx.spring_layout(G)
+
+	# Determine labels: priority: explicit atom_symbols arg -> data.atom_symbols -> rdkit labels -> numeric indices
+	if atom_symbols is not None:
+		labels = {i: str(s) for i, s in enumerate(atom_symbols)}
+	elif labels is None:
+		if hasattr(data, "atom_symbols"):
+			try:
+				sym_list = list(data.atom_symbols)
+				if len(sym_list) == G.number_of_nodes():
+					labels = {i: str(sym_list[i]) for i in range(len(sym_list))}
+			except Exception:
+				labels = None
+
+	if labels is None:
+		labels = {i: str(i) for i in range(G.number_of_nodes())}
+
+	# Plot
+	fig, ax = plt.subplots(figsize=(10, 6))
+	# ensure node_vals length matches
+	try:
+		node_plot_vals = node_vals
+		if len(node_plot_vals) != G.number_of_nodes():
+			# fallback: try to trim or pad with zeros
+			import numpy as _np
+
+			if len(node_plot_vals) > G.number_of_nodes():
+				node_plot_vals = node_plot_vals[: G.number_of_nodes()]
+			else:
+				pad = _np.zeros(G.number_of_nodes() - len(node_plot_vals))
+				node_plot_vals = _np.concatenate([node_plot_vals, pad])
+	except Exception:
+		node_plot_vals = None
+
+	cmap = mpl.cm.plasma
+	if node_plot_vals is None:
+		# draw uncoloured graph if we can't get values
+		nx.draw(G, pos=pos, with_labels=False, ax=ax)
+	else:
+		nc = nx.draw_networkx_nodes(G, pos=pos, node_color=node_plot_vals, cmap=cmap, ax=ax)
+		nx.draw_networkx_edges(G, pos=pos, ax=ax)
+		# overlay labels
+		nx.draw_networkx_labels(G, pos=pos, labels=labels, ax=ax, font_size=8)
+		# colorbar
+		norm = mpl.colors.Normalize(vmin=float(node_plot_vals.min()), vmax=float(node_plot_vals.max()))
+		mappable = mpl.cm.ScalarMappable(cmap=cmap, norm=norm)
+		try:
+			mappable.set_array(node_plot_vals)
+		except Exception:
+			# Matplotlib older versions may require different handling
+			mappable.set_array([float(x) for x in node_plot_vals])
+		fig.colorbar(mappable, ax=ax)
+
+	if title:
+		ax.set_title(title)
+	plt.tight_layout()
+	plt.show()
+    
+
+def extract_node_importance_from_forward(model: nn.Module, data: Data, head_pool: str = "mean", normalize: bool = True):
+    """Try to extract attention returned from a model forward pass and
+    convert it to node-level importances.
+
+    Returns the same structure as `attention_node_importance`: a dict with
+    - "per_layer": list of (layer_name, Tensor[num_nodes])
+    - "aggregated": Tensor[num_nodes]
+
+    If the model forward does not return attention, returns None.
     """
+    # Attempt to call model(...) with a standard attention-returning kwarg
+    attn_list = None
     try:
-        import matplotlib.pyplot as plt
-        import networkx as nx
+        res = model(data, return_attn=True)
+        if isinstance(res, tuple) and len(res) == 2:
+            _, attn_list = res
+    except TypeError:
+        # Some models expect forward(...) explicitly
+        try:
+            res = model.forward(data, return_attn=True)
+            if isinstance(res, tuple) and len(res) == 2:
+                _, attn_list = res
+        except Exception:
+            attn_list = None
     except Exception:
-        raise RuntimeError("Matplotlib and networkx required for visualization")
+        attn_list = None
 
-    edge_index = data.edge_index.cpu()
-    edges = edge_index.t().tolist()
-    G = nx.Graph()
-    G.add_nodes_from(range(data.num_nodes))
-    G.add_edges_from(edges)
+    if not attn_list:
+        return None
 
-    pos = nx.spring_layout(G, seed=42)
-    plt.figure()
-    sc = nx.draw_networkx_nodes(G, pos, node_color=scores.numpy(), cmap="viridis", node_size=300)
-    nx.draw_networkx_edges(G, pos, alpha=0.6)
-    nx.draw_networkx_labels(G, pos, font_size=8)
-    plt.colorbar(sc, label="importance")
-    if title:
-        plt.title(title)
-    plt.axis("off")
-    plt.show()
+    # Ensure data is not moved by the caller
+    num_nodes = int(data.num_nodes)
+
+    def _norm(t: torch.Tensor) -> torch.Tensor:
+        t = t - float(t.min())
+        if float(t.max()) > 0:
+            t = t / float(t.max())
+        return t
+
+    per_layer = []
+    agg = None
+    for idx, (edge_idx, attn_weights) in enumerate(attn_list):
+        # resolve edge_index (use data.edge_index if None)
+        if edge_idx is None:
+            edge_index = data.edge_index
+        else:
+            # some APIs return (edge_index, ...)
+            if isinstance(edge_idx, (tuple, list)):
+                edge_index = edge_idx[0]
+            else:
+                edge_index = edge_idx
+
+        # Normalize attn shapes to [E, H] or [E,]
+        a = attn_weights
+        # If attn is on GPU, move edge_index to same device in helper below
+
+        node_scores = _edge_attention_to_node_importance(edge_index, a, num_nodes, head_pool=head_pool)
+        if normalize:
+            node_scores = _norm(node_scores)
+
+        layer_name = f"forward_attn_layer_{idx}"
+        per_layer.append((layer_name, node_scores))
+        agg = node_scores if agg is None else agg + node_scores
+
+    if agg is None:
+        agg = torch.zeros(num_nodes)
+    if normalize:
+        agg = _norm(agg)
+
+    return {"per_layer": per_layer, "aggregated": agg}

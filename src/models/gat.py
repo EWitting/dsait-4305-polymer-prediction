@@ -60,17 +60,68 @@ class GATv2(torch.nn.Module):
         self.fcs.append(nn.Linear(hidden_layers[-1], 5))
         self.act = act
     
-    def forward(self, data: Data) -> Tensor:
+    def forward(self, data: Data, return_attn: bool = False):
+        """Forward pass.
+
+        If `return_attn=True` the method returns a tuple (out, attn_list)
+        where `attn_list` is a list of (edge_index, attn_weights) collected
+        from each GAT layer that supports returning attention weights.
+        This is a minimal, backward-compatible extension used for
+        post-hoc explainability.
+        """
         x = data.x
+        attn_collected = []
+
         for block_idx in range(0, len(self.attention_layers), 2):
             attn, lin = self.attention_layers[block_idx:block_idx+2]
-            x_headed = attn(x, data.edge_index)
+            if return_attn:
+                try:
+                    res = attn(x, data.edge_index, return_attention_weights=True)
+                    # res often is (out, (edge_index, attn_weights))
+                    if isinstance(res, tuple) and len(res) >= 2:
+                        x_headed = res[0]
+                        second = res[1]
+                        if isinstance(second, tuple) and len(second) >= 2:
+                            edge_idx, attn_weights = second[0], second[1]
+                        else:
+                            # (out, attn_weights) — reuse data.edge_index
+                            edge_idx, attn_weights = data.edge_index, second
+                    else:
+                        # Unexpected structure; fall back to normal call
+                        x_headed = res
+                        edge_idx, attn_weights = data.edge_index, None
+                except TypeError:
+                    # return_attention_weights not in this PyG version — call normally
+                    x_headed = attn(x, data.edge_index)
+                    edge_idx, attn_weights = data.edge_index, getattr(attn, 'alpha', None)
+                except Exception:
+                    # Any other issue, fall back gracefully
+                    x_headed = attn(x, data.edge_index)
+                    edge_idx, attn_weights = data.edge_index, getattr(attn, 'alpha', None)
+            else:
+                x_headed = attn(x, data.edge_index)
+                edge_idx, attn_weights = None, None
+
             x = self.act(lin(x_headed))
-            
+
+            if return_attn and attn_weights is not None:
+                # Normalize/standardize stored format: ensure tensors on cpu
+                try:
+                    attn_t = attn_weights.detach().cpu()
+                except Exception:
+                    attn_t = torch.as_tensor(attn_weights).detach().cpu()
+                # If edge_idx is a tuple (as some PyG versions return), take first element
+                if isinstance(edge_idx, (tuple, list)):
+                    edge_idx = edge_idx[0]
+                attn_collected.append((edge_idx.detach().cpu() if hasattr(edge_idx, 'detach') else edge_idx, attn_t))
+
         pool_out = self.pooling1(x, data.edge_index, batch=data.batch)
         x = self.global_pool(pool_out[0], pool_out[3])
         out = self.fcs(x)
-        
+
+        if return_attn:
+            return out, attn_collected
+
         return out
         
     
