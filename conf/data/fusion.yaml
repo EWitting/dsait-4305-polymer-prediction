@@ -17,7 +17,7 @@ random_state: 42
 n_splits: 5  # Number of folds for cross-validation
 
 # Dataset type: 'graph' for GraphDataset (PyG Data objects) or 'tensor' for TensorDataset (flat tensors)
-dataset_type: graph  # default is graph, for PolyBERT use 'polybert', 3d for 3d, fusion for fusion
+dataset_type: fusion  # default is graph, for PolyBERT use 'polybert', 3d for 3d, fusion for fusion
 
 
 # DataLoader configuration
