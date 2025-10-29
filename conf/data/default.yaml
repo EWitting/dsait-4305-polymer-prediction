@@ -4,24 +4,22 @@ train_file: "train.csv"
 
 # Target properties to predict
 label_names:
-  - Tg
-  - FFV
-  - Tc
-  - Density
-  - Rg
+- Tg
+- FFV
+- Tc
+- Density
+- Rg
 
 # Data split configuration
-test_split: 0.15  # Fraction of data to use as test set (may be 0)
-val_size: 0.17  # Proportion of remaining data after test split (for non-cv case)
+test_split: 0.15 # Fraction of data to use as test set (may be 0)
+val_size: 0.17 # Proportion of remaining data after test split (for non-cv case)
 random_state: 42
-n_splits: 5  # Number of folds for cross-validation
+n_splits: 5 # Number of folds for cross-validation
 
 # Dataset type: 'graph' for GraphDataset (PyG Data objects) or 'tensor' for TensorDataset (flat tensors)
-dataset_type: graph  # default is graph, for PolyBERT use 'polybert', 3d for 3d
-
+dataset_type: fusion # default is graph, for PolyBERT use 'polybert', 3d for 3d, fusion for fusion
 
 # DataLoader configuration
 batch_size: 64
-num_workers: 0  # Set to 0 for Windows compatibility
+num_workers: 0 # Set to 0 for Windows compatibility
 persistent_workers: false
-

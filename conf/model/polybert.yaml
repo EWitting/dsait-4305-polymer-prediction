@@ -1,7 +1,7 @@
 _target_: src.models.polyBERT.PolyBERTForRegression
 
 model_name: "kuelumbus/polybert"
-num_labels: 5           # adjust to number of target properties
+num_labels: 5          
 learning_rate: 5e-5
-dropout: 0.0
+dropout: 0.1
 freeze_encoder: true

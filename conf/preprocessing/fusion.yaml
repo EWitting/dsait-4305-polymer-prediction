@@ -1,0 +1,4 @@
+_target_: src.preprocessing.fusionpreprocess.FusionPreprocessor
+
+polybert_model: "kuelumbus/polybert"
+max_length: 256

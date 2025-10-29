@@ -1,0 +1,10 @@
+_target_: src.models.fusion.FusionPolyBERTGraph
+
+model_name: "kuelumbus/polybert"
+graph_model_type: "gcn"  
+num_labels: 5
+graph_dim: 128
+fusion_dim: 256
+dropout: 0.1     
+learning_rate: 5e-5
+freeze_polybert: True

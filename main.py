@@ -21,6 +21,7 @@ from omegaconf import DictConfig, OmegaConf
 import petname
 
 from src.loss.masked_loss import WeightedMAELoss
+from src.preprocessing.fusionpreprocess import collate_fusion_fn
 
 print("Finished importing libraries.")
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -59,6 +60,37 @@ class PolyBERTDataset(Dataset):
         return {
             "input_ids": self.input_ids[idx],
             "attention_mask": self.attention_mask[idx],
+            "labels": self.labels[idx],
+        }
+
+
+class FusionDataset(Dataset):
+    def __init__(self, X, labels, preprocessor=None):
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+
+        if isinstance(X, dict):
+            # Already preprocessed
+            self.input_ids = X["input_ids"]
+            self.attention_mask = X["attention_mask"]
+            self.graph_data = X["graph_data"]
+        elif preprocessor is not None:
+            data = preprocessor.transform(X)
+            self.input_ids = data["input_ids"]
+            self.attention_mask = data["attention_mask"]
+            self.graph_data = data["graph_data"]
+        else:
+            raise ValueError(
+                "FusionDataset needs either preprocessed data or a preprocessor"
+            )
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return {
+            "input_ids": self.input_ids[idx],
+            "attention_mask": self.attention_mask[idx],
+            "graph_data": self.graph_data[idx],
             "labels": self.labels[idx],
         }
 
@@ -179,6 +211,8 @@ def train_fold(
         dataset_cls = GraphDataset
     elif dataset_type == "polybert":
         dataset_cls = PolyBERTDataset
+    elif dataset_type == "fusion":
+        dataset_cls = FusionDataset
     else:
         dataset_cls = TensorDataset
 
@@ -194,47 +228,80 @@ def train_fold(
     test_dataset = dataset_cls(X_test_processed, Y_test) if X_test is not None else None
 
     # Create dataloaders
-    if dataset_type in ["tensor", "polybert"]:
-        dataloader_cls = TorchDataLoader
+    if dataset_type == "fusion":
+        # Use TorchDataLoader with custom collate_fn
+        train_dataloader = TorchDataLoader(
+            train_dataset,
+            batch_size=cfg.data.batch_size,
+            shuffle=True,
+            num_workers=cfg.data.num_workers,
+            collate_fn=collate_fusion_fn,
+        )
+        val_dataloader = (
+            TorchDataLoader(
+                val_dataset,
+                batch_size=cfg.data.batch_size,
+                num_workers=cfg.data.num_workers,
+                collate_fn=collate_fusion_fn,
+            )
+            if val_dataset is not None
+            else None
+        )
+        test_dataloader = (
+            TorchDataLoader(
+                test_dataset,
+                batch_size=cfg.data.batch_size,
+                num_workers=cfg.data.num_workers,
+                collate_fn=collate_fusion_fn,
+            )
+            if test_dataset is not None
+            else None
+        )
     else:
-        dataloader_cls = DataLoader
-    train_dataloader = dataloader_cls(
-        train_dataset,
-        batch_size=cfg.data.batch_size,
-        shuffle=True,
-        num_workers=cfg.data.num_workers,
-        persistent_workers=(
-            cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
-        ),
-    )
-    val_dataloader = (
-        dataloader_cls(
-            val_dataset,
+        if dataset_type in ["tensor", "polybert"]:
+            dataloader_cls = TorchDataLoader
+        else:
+            dataloader_cls = DataLoader
+        train_dataloader = dataloader_cls(
+            train_dataset,
             batch_size=cfg.data.batch_size,
+            shuffle=True,
             num_workers=cfg.data.num_workers,
             persistent_workers=(
                 cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
             ),
         )
-        if val_dataset is not None
-        else None
-    )
-    test_dataloader = (
-        dataloader_cls(
-            test_dataset,
-            batch_size=cfg.data.batch_size,
-            num_workers=cfg.data.num_workers,
-            persistent_workers=(
-                cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
-            ),
+        val_dataloader = (
+            dataloader_cls(
+                val_dataset,
+                batch_size=cfg.data.batch_size,
+                num_workers=cfg.data.num_workers,
+                persistent_workers=(
+                    cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+                ),
+            )
+            if val_dataset is not None
+            else None
         )
-        if test_dataset is not None
-        else None
-    )
+        test_dataloader = (
+            dataloader_cls(
+                test_dataset,
+                batch_size=cfg.data.batch_size,
+                num_workers=cfg.data.num_workers,
+                persistent_workers=(
+                    cfg.data.persistent_workers if cfg.data.num_workers > 0 else False
+                ),
+            )
+            if test_dataset is not None
+            else None
+        )
 
     # Instantiate model, optimizer, scheduler
     # If using PolyBERT, pass property_ranges and num_samples_per_property
-    if cfg.data.dataset_type.lower() == "polybert":
+    if (
+        cfg.data.dataset_type.lower() == "polybert"
+        or cfg.data.dataset_type.lower() == "fusion"
+    ):
         model = instantiate(
             cfg.model,
             property_ranges=property_ranges,
