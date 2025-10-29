@@ -1,18 +1,22 @@
+# prettier-ignore
 # Main Configuration File
 defaults:
-  - model: gat
-  - optimizer: adam
-  - scheduler: null
-  - trainer: default
-  - data: default
-  - loss: weighted_mae
-  - wandb: default
-  - preprocessing: oligomer
-  - _self_
+- model: gat
+- optimizer: adam
+- scheduler: null
+- trainer: default
+- data: default
+- loss: weighted_mae
+- wandb: default
+- preprocessing: oligomer
+- ssl_model: contrastive
+- _self_
+
+pretrained_checkpoint: "checkpoints/ContrastiveLearning_ssl_checkpoint.ckpt"
 
 # Experiment settings
-seed: null  # Set to an integer for reproducibility
-crossval: false  # Enable cross-validation
+seed: null # Set to an integer for reproducibility
+crossval: false # Enable cross-validation
 
 # Further configuration that does not belong to any of the above groups
 normalize_labels: minmax # False | minmax | standard
@@ -24,4 +28,3 @@ hydra:
   sweep:
     dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
     subdir: ${hydra.job.num}
-

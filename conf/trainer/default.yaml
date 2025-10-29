@@ -1,10 +1,11 @@
 # PyTorch Lightning Trainer Configuration
 max_epochs: 50
-accelerator: gpu
+# accelerator: gpu
+accelerator: cpu
 devices: auto
 log_every_n_steps: 50
 
-enable_checkpointing: false
+# enable_checkpointing: false
 
 # Uncomment to enable early stopping
 # callbacks:
@@ -12,4 +13,3 @@ enable_checkpointing: false
 #     monitor: val_loss
 #     mode: min
 #     patience: 5
-

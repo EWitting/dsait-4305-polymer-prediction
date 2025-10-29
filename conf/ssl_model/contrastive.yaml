@@ -1,0 +1,5 @@
+_target_: src.ssl.SSLModels.ContrastiveModel
+backbone: ${model}
+optimizer_cfg: ${optimizer}
+scheduler_cfg: null
+backbone_output_dim: 64
