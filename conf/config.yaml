@@ -12,7 +12,7 @@ defaults:
 
 # Experiment settings
 seed: null  # Set to an integer for reproducibility
-crossval: false  # Enable cross-validation
+crossval: true  # Enable cross-validation
 
 # Further configuration that does not belong to any of the above groups
 normalize_labels: minmax # False | minmax | standard
