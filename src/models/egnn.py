@@ -24,6 +24,7 @@ class EGNNConv(MessagePassing):
         edge_mlp_dim=128, 
         node_mlp_dim=128, 
         coors_mlp_dim=32, 
+        update_coors=True, 
         *, 
         aggr_kwargs = None, 
         flow = "source_to_target", 
@@ -40,6 +41,7 @@ class EGNNConv(MessagePassing):
         self.norm_feats = norm_feats
         self.norm_coors = norm_coors
         self.dropout = nn.Dropout(p=dropout) if dropout > 0 else nn.Identity()
+        self.update_coors = update_coors
         
         self.edge_mlp = nn.Sequential(
             nn.Linear(self.ef_dim, edge_mlp_dim),
@@ -87,10 +89,14 @@ class EGNNConv(MessagePassing):
         update_kwargs = self.inspector.collect_param_data('update', coll_dict)
         
         m_ij = self.message(**msg_kwargs)
-        coor_wij = self.coors_mlp(m_ij)
-        mhat_i = self.aggregate(coor_wij * kwargs["rel_coors"], **aggr_kwargs)
-        C = 1/(kwargs["coors"].size(0))
-        coors_out = kwargs["coors"] + C * mhat_i
+        
+        if self.update_coors:
+            coor_wij = self.coors_mlp(m_ij)
+            mhat_i = self.aggregate(coor_wij * kwargs["rel_coors"], **aggr_kwargs)
+            C = 1/(kwargs["coors"].size(0))
+            coors_out = kwargs["coors"] + C * mhat_i
+        else: 
+            coors_out = kwargs["coors"]
         
         m_i = self.aggregate(m_ij, **aggr_kwargs)
         hidden_feats = self.node_norm(kwargs["x"], kwargs["batch"]) if self.node_norm else kwargs["x"]
