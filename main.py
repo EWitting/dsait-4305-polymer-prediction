@@ -90,16 +90,28 @@ class FusionDataset(Dataset):
 
         
 class DescGraphDataset(Dataset):
-    def __init__(self, graphs, labels, descs=None):
+    def __init__(self, graphs, descs, labels):
         self.graphs = graphs
-        self.descs = descs
+        self.descs = torch.stack(descs)
         self.labels = torch.tensor(labels, dtype=torch.float32)
     
     def __len__(self):
         return len(self.graphs)
     
     def __getitem__(self, idx):
-        return self.graphs[idx], self.descs[idx, :], self.labels[idx]
+        return (self.graphs[idx], self.descs[idx]), self.labels[idx]
+    
+class MultiGraphDataset(Dataset):
+    def __init__(self, graphs, descs, labels):
+        self.graphs = graphs
+        self.descs = torch.stack(descs)
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+    
+    def __len__(self):
+        return len(self.graphs)
+    
+    def __getitem__(self, idx):
+        return (self.graphs[idx], self.descs[idx]), self.labels[idx]
 
 
 # Wrap the model in a LightningModule
@@ -166,8 +178,24 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
 
     if dataset_type == 'graph':
         dataset_cls = GraphDataset
-    elif dataset_type == '3d':
+    elif dataset_type == '3d' and not cfg.data.compute_desc:
         dataset_cls = GraphDataset
+        X_train_processed = X_train_processed[cfg.data.intervals[0]].values
+        X_val_processed = X_val_processed[cfg.data.intervals[0]].values
+        X_test_processed = X_test_processed[cfg.data.intervals[0]].values
+    elif dataset_type == '3d' and cfg.data.compute_desc:
+        dataset_cls = DescGraphDataset
+        
+        train_descs = X_train_processed['descs'].to_list()
+        val_descs = X_val_processed['descs'].to_list()
+        test_descs = X_test_processed['descs'].to_list()
+        
+        X_train_processed = X_train_processed[cfg.data.intervals].values.squeeze()
+        X_val_processed = X_val_processed[cfg.data.intervals].values.squeeze()
+        X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
+        
+    elif dataset_type == 'multi_3d':
+        pass #TODO
     elif dataset_type == 'polybert':
         dataset_cls = PolyBERTDataset
     elif dataset_type == 'fusion':
@@ -180,9 +208,14 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
         Y_val = torch.tensor(Y_val, dtype=torch.float32) if Y_val is not None else None
         Y_test = torch.tensor(Y_test, dtype=torch.float32) if Y_test is not None else None
     
-    train_dataset = dataset_cls(X_train_processed, Y_train)
-    val_dataset = dataset_cls(X_val_processed, Y_val) if X_val is not None else None
-    test_dataset = dataset_cls(X_test_processed, Y_test) if X_test is not None else None
+    if cfg.data.compute_desc:
+        train_dataset = dataset_cls(X_train_processed, train_descs, Y_train)
+        val_dataset = dataset_cls(X_val_processed, val_descs, Y_val) if X_val is not None else None
+        test_dataset = dataset_cls(X_test_processed, test_descs, Y_test) if X_test is not None else None
+    else:
+        train_dataset = dataset_cls(X_train_processed, Y_train)
+        val_dataset = dataset_cls(X_val_processed, Y_val) if X_val is not None else None
+        test_dataset = dataset_cls(X_test_processed, Y_test) if X_test is not None else None
     
     # Create dataloaders
     if dataset_type == 'fusion':
@@ -318,8 +351,10 @@ def main(cfg: DictConfig):
         if cfg.data.compute_desc:
             from src.preprocessing.rdkit_descriptors import RDKitDescriptorsPreprocessor
             graph_descriptors = RDKitDescriptorsPreprocessor().fit_transform(raw_train_data['SMILES'])
-        # for now just one graph TODO: multigraph and adding descriptors
-        X = raw_train_data[cfg.data.intervals[0]].values
+            raw_train_data['descs'] = list(graph_descriptors)
+            # raw_train_data['descs'] = list(torch.randn((7973, 217)))
+        # for now just one graph 
+        X = raw_train_data
         Y = raw_train_data[cfg.data.label_names].values
     else:
         raw_train_data = pd.read_csv(data_path)

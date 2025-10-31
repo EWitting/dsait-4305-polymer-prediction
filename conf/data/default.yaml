@@ -1,6 +1,7 @@
 # Data Configuration
 data_dir: "data/raw"
 train_file: "train.csv"
+compute_desc: false
 
 # Target properties to predict
 label_names:

@@ -1,0 +1,6 @@
+_target_: src.models.egnn.SingleGraphEGNN
+
+n_layers: 7                    
+m_dim: 32
+dropout: 0.2
+global_linear_dims: [64, 64]

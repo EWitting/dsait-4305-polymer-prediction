@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import torch_geometric as pyg
+import torch_geometric.nn.aggr as agg
 
 from torch import nn
 from torch_geometric.data import Data
@@ -74,7 +75,8 @@ class EGNNConv(MessagePassing):
             nn.init.zeros_(module.bias)
             
     def message(self, x_i, x_j, edge_attr):
-        m_ij = self.edge_mlp(torch.cat([x_i, x_j, edge_attr], dim=-1))
+        # print(x_i.dtype, x_j.dtype, edge_attr.dtype)
+        m_ij = self.edge_mlp(torch.cat([x_i, x_j, edge_attr.float()], dim=-1))
         return m_ij
     
     def propagate(self, edge_index, size=None, **kwargs):
@@ -116,7 +118,7 @@ class EGNNNetwork(nn.Module):
         nf_dim, 
         edge_attr_dim = 2, 
         m_dim=32,
-        embedding_nums=list([40, 8, 2, 2, 9]), 
+        embedding_nums=list([118, 8, 2, 2, 9]), 
         embedding_idxs=list([1, 4, 5, 7, 8]),
         embedding_dims=list([32, 16, 4, 4, 16]),
         update_coors=True, 
@@ -124,9 +126,7 @@ class EGNNNetwork(nn.Module):
         norm_feats=True, 
         dropout=0.,
         aggr="sum",
-        pooling=pyg.nn.global_add_pool, 
-        global_linear_dims=list([128, 64]),
-        global_final_dim=64,
+        pooling=pyg.nn.global_add_pool,
         *args,
         **kwargs
     ):
@@ -162,11 +162,13 @@ class EGNNNetwork(nn.Module):
                 norm_feats=norm_feats
             )
             self.mp_layers.append(layer)
-        
+            
+        all_idxs = torch.arange(self.nf_dim)
+        self.keep_idxs = torch.tensor([i for i in all_idxs if i not in self.emb_idxs])
         
     def forward(self, data: Data):
         # get the embeddings 
-        x, edge_index, edge_attr, coors, batch = data.x, data.edge_index, data.edge_attr, data.pos, data.batch
+        x, edge_index, edge_attr, coors, batch = data.x, data.edge_index, data.edge_attr.float(), data.pos.float(), data.batch
         x = self.embed(x)
         
         edge_index, edge_attr = add_self_loops(edge_index, edge_attr, fill_value=0.0)
@@ -176,14 +178,10 @@ class EGNNNetwork(nn.Module):
         return self.pooling(x, batch)
     
     def embed(self, x):
-        x_cat = x[:, self.emb_idxs]
         embs = []
-        for i, emb in enumerate(self.emb_layers):
-            embs.append(emb(x_cat[:, i].long()))
-        mask = torch.ones_like(x, dtype=torch.bool)   
-        mask[:, self.emb_idxs] = False
-        col_mask = mask.any(dim=0)
-        x = x[:, col_mask]
+        for emb, i in zip(self.emb_layers, self.emb_idxs):
+            embs.append(emb(x[:, i].long()))
+        x = x[:, self.keep_idxs]
         return torch.cat([x, *embs], dim=-1)
     
 class SingleGraphEGNN(nn.Module):
@@ -194,7 +192,7 @@ class SingleGraphEGNN(nn.Module):
         nf_dim=48, 
         edge_attr_dim=2, 
         m_dim=32,
-        embedding_nums=list([40, 8, 2, 2, 9]), 
+        embedding_nums=list([118, 8, 2, 2, 9]), 
         embedding_idxs=list([1, 4, 5, 7, 8]),
         embedding_dims=list([32, 16, 4, 4, 16]),
         update_coors=True, 
@@ -234,7 +232,8 @@ class SingleGraphEGNN(nn.Module):
         self.global_final_dim = global_final_dim 
         
     
-    def forward(self, data, graph_desc):
+    def forward(self, input):
+        data, graph_desc = input
         egnn_res = self.egnn(data)
         full_inp = torch.cat([egnn_res, graph_desc], dim=-1)
         return self.ffn(full_inp)
@@ -248,7 +247,7 @@ class MultiGraphEGNN(nn.Module):
         nf_dim=48, 
         edge_attr_dim=2, 
         m_dim=32,
-        embedding_nums=list([40, 8, 2, 2, 9]), 
+        embedding_nums=list([118, 8, 2, 2, 9]), 
         embedding_idxs=list([1, 4, 5, 7, 8]),
         embedding_dims=list([32, 16, 4, 4, 16]),
         update_coors=True, 
@@ -257,6 +256,7 @@ class MultiGraphEGNN(nn.Module):
         dropout=0.2,
         aggr="sum", # actually for the forms in the paper this has to be sum
         aggr_graphs="lstm", 
+        aggr_kwargs=dict(),
         pooling=pyg.nn.global_add_pool, 
         global_linear_dims=list([128, 64]),
         global_final_dim=5,
@@ -280,8 +280,19 @@ class MultiGraphEGNN(nn.Module):
             pooling=pooling,
         )
         
-        assert aggr_graphs in {"lstm", "sum", "concat", "max"}
+        assert aggr_graphs in {"lstm", "sum", "concat", "max", "attn"}
         
+        match aggr_graphs:
+            case "lstm":
+                self.aggregator = nn.LSTM(aggr_kwargs) # we can do this since we know the graph permutation
+            case "sum": 
+                self.aggregator = agg.SumAggregation()
+            case "max": 
+                self.aggregator = agg.MaxAggregation()
+            case "concat": 
+                self.aggregator = None
+            case "attn": 
+                self.aggregator = None
         
         # for global graph info
         self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 217, global_linear_dims[0]))
