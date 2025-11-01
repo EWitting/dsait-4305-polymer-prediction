@@ -23,6 +23,7 @@ dependencies = [
     "wandb>=0.22.2",
     "huggingface-hub>=0.36.0",
     "egnn-pytorch>=0.2.8",
+    "xgboost>=2.1.4",
 ]
 
 

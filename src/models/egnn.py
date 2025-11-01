@@ -122,17 +122,17 @@ class EGNNNetwork(nn.Module):
         self, 
         n_layers, 
         nf_dim, 
-        edge_attr_dim = 2, 
+        edge_attr_dim = 1, 
         m_dim=32,
-        embedding_nums=list([118, 8, 2, 2, 9]), 
-        embedding_idxs=list([1, 4, 5, 7, 8]),
-        embedding_dims=list([32, 16, 4, 4, 16]),
+        embedding_nums=list([119, 11, 12, 8, 2, 9, 2, 9, 5, 7]), 
+        embedding_idxs=list([1, 2, 3, 4, 5, 7, 8, 9, 10]),
+        embedding_dims=list([32, 8, 8, 8, 8, 8, 8, 8, 8]),
         update_coors=True, 
         update_feats=True, 
         norm_feats=True, 
         dropout=0.,
         aggr="sum",
-        pooling=pyg.nn.global_add_pool,
+        pooling=pyg.nn.global_mean_pool,
         *args,
         **kwargs
     ):
@@ -147,7 +147,7 @@ class EGNNNetwork(nn.Module):
         for emb_num, emb_dim in zip(embedding_nums, embedding_dims):
             self.emb_layers.append(nn.Embedding(emb_num, emb_dim))
             self.nf_dim_emb += emb_dim - 1
-            
+        
         self.mp_layers = nn.ModuleList()
         self.edge_attr_dim = edge_attr_dim
         self.norm_feats = norm_feats
@@ -195,8 +195,8 @@ class SingleGraphEGNN(nn.Module):
     def __init__(
         self, 
         n_layers=7, 
-        nf_dim=48, 
-        edge_attr_dim=2, 
+        nf_dim=24, 
+        edge_attr_dim=1, 
         m_dim=32,
         embedding_nums=list([118, 8, 2, 2, 9]), 
         embedding_idxs=list([1, 4, 5, 7, 8]),
@@ -206,7 +206,7 @@ class SingleGraphEGNN(nn.Module):
         norm_feats=True, 
         dropout=0.2,
         aggr="sum", # actually for the forms in the paper this has to be sum
-        pooling=pyg.nn.global_add_pool, 
+        pooling=pyg.nn.global_mean_pool, 
         global_linear_dims=list([128, 64]),
         global_final_dim=5,
         *args, 

@@ -182,17 +182,20 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
         dataset_cls = GraphDataset
         X_train_processed = X_train_processed[cfg.data.intervals[0]].values
         X_val_processed = X_val_processed[cfg.data.intervals[0]].values
-        X_test_processed = X_test_processed[cfg.data.intervals[0]].values
+        if cfg.data.test_split > 0:
+            X_test_processed = X_test_processed[cfg.data.intervals[0]].values
     elif dataset_type == '3d' and cfg.data.compute_desc:
         dataset_cls = DescGraphDataset
         
         train_descs = X_train_processed['descs'].to_list()
         val_descs = X_val_processed['descs'].to_list()
-        test_descs = X_test_processed['descs'].to_list()
+        if cfg.data.test_split > 0:
+            test_descs = X_test_processed['descs'].to_list()
         
         X_train_processed = X_train_processed[cfg.data.intervals].values.squeeze()
         X_val_processed = X_val_processed[cfg.data.intervals].values.squeeze()
-        X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
+        if cfg.data.test_split > 0:
+            X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
         
     elif dataset_type == 'multi_3d':
         pass #TODO
@@ -409,11 +412,17 @@ def main(cfg: DictConfig):
             print(f"\nFold {fold_idx + 1}/{cfg.data.n_splits}")
             print('-'*60)
             
-            X_train = X_trainval[train_idx]
-            Y_train = Y_trainval[train_idx]
-            X_val = X_trainval[val_idx]
-            Y_val = Y_trainval[val_idx]
-            
+            if cfg.data.dataset_type == "3d":
+                X_train = X_trainval.iloc[train_idx]
+                Y_train = Y_trainval[train_idx]
+                X_val = X_trainval.iloc[val_idx]
+                Y_val = Y_trainval[val_idx]
+            else: 
+                X_train = X_trainval[train_idx]
+                Y_train = Y_trainval[train_idx]
+                X_val = X_trainval[val_idx]
+                Y_val = Y_trainval[val_idx]
+                
             metrics = train_fold(
                 cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
                 preprocessor, property_ranges, num_samples_per_property,

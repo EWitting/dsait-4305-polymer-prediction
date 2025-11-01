@@ -24,3 +24,5 @@ multirun/
 wandb/
 /reprs.pl
 data/processed
+/reprs_v2.pl
+/logs
