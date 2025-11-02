@@ -17,14 +17,14 @@ class EGNNConv(MessagePassing):
         nf_dim, 
         ef_dim, 
         m_dim, 
-        norm_feats = False,
-        norm_coors = False,
-        aggr = 'sum', 
-        dropout = 0.1, 
+        norm_feats=False,
+        norm_coors=False,
+        aggr='sum', 
+        dropout=0.1, 
         edge_mlp_dim=128, 
         node_mlp_dim=128, 
         coors_mlp_dim=32, 
-        update_coors=True, 
+        act=nn.SiLU, 
         *, 
         aggr_kwargs = None, 
         flow = "source_to_target", 
@@ -33,15 +33,13 @@ class EGNNConv(MessagePassing):
     ):
         super().__init__(aggr, aggr_kwargs=aggr_kwargs, flow=flow, node_dim=node_dim, decomposed_layers=decomposed_layers)
         
-        assert aggr in {'add', 'sum', 'max', 'mean'}, 'pool method must be a valid option'
-        self.act = nn.SiLU
+        self.act = act
         self.nf_dim = nf_dim
         self.ef_dim = ef_dim # concatenation of inputs
         self.m_dim = m_dim
         self.norm_feats = norm_feats
         self.norm_coors = norm_coors
         self.dropout = nn.Dropout(p=dropout) if dropout > 0 else nn.Identity()
-        self.update_coors = update_coors
         
         self.edge_mlp = nn.Sequential(
             nn.Linear(self.ef_dim, edge_mlp_dim),
@@ -77,7 +75,6 @@ class EGNNConv(MessagePassing):
             nn.init.zeros_(module.bias)
             
     def message(self, x_i, x_j, edge_attr):
-        # print(x_i.dtype, x_j.dtype, edge_attr.dtype)
         m_ij = self.edge_mlp(torch.cat([x_i, x_j, edge_attr.float()], dim=-1))
         return m_ij
     
@@ -89,14 +86,8 @@ class EGNNConv(MessagePassing):
         update_kwargs = self.inspector.collect_param_data('update', coll_dict)
         
         m_ij = self.message(**msg_kwargs)
-        
-        if self.update_coors:
-            coor_wij = self.coors_mlp(m_ij)
-            mhat_i = self.aggregate(coor_wij * kwargs["rel_coors"], **aggr_kwargs)
-            C = 1/(kwargs["coors"].size(0))
-            coors_out = kwargs["coors"] + C * mhat_i
-        else: 
-            coors_out = kwargs["coors"]
+
+        coors_out = kwargs["coors"]
         
         m_i = self.aggregate(m_ij, **aggr_kwargs)
         hidden_feats = self.node_norm(kwargs["x"], kwargs["batch"]) if self.node_norm else kwargs["x"]
@@ -125,12 +116,11 @@ class EGNNNetwork(nn.Module):
         edge_attr_dim = 1, 
         m_dim=32,
         embedding_nums=list([119, 11, 12, 8, 2, 9, 2, 9, 5, 7]), 
-        embedding_idxs=list([1, 2, 3, 4, 5, 7, 8, 9, 10]),
-        embedding_dims=list([32, 8, 8, 8, 8, 8, 8, 8, 8]),
-        update_coors=True, 
-        update_feats=True, 
+        embedding_idxs=list([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        embedding_dims=list([32, 8, 8, 8, 8, 8, 8, 8, 8, 8]),
         norm_feats=True, 
         dropout=0.,
+        act=nn.SiLU,
         aggr="sum",
         pooling=pyg.nn.global_mean_pool,
         *args,
@@ -151,13 +141,12 @@ class EGNNNetwork(nn.Module):
         self.mp_layers = nn.ModuleList()
         self.edge_attr_dim = edge_attr_dim
         self.norm_feats = norm_feats
-        self.update_feats = update_feats
-        self.update_coors = update_coors
         self.dropout = dropout
         self.pooling = pooling
         
         # for mpnn
         self.ef_dim = self.nf_dim_emb * 2 + (self.edge_attr_dim + 1)
+        
         for i in range(n_layers):
             layer = EGNNConv(
                 nf_dim=self.nf_dim_emb,
@@ -165,6 +154,7 @@ class EGNNNetwork(nn.Module):
                 m_dim=m_dim,
                 dropout=dropout,
                 aggr=aggr,
+                act=act,
                 norm_feats=norm_feats
             )
             self.mp_layers.append(layer)
@@ -198,21 +188,29 @@ class SingleGraphEGNN(nn.Module):
         nf_dim=24, 
         edge_attr_dim=1, 
         m_dim=32,
-        embedding_nums=list([118, 8, 2, 2, 9]), 
-        embedding_idxs=list([1, 4, 5, 7, 8]),
-        embedding_dims=list([32, 16, 4, 4, 16]),
-        update_coors=True, 
-        update_feats=True, 
+        embedding_nums=list([119, 11, 12, 8, 2, 9, 2, 9, 5, 7]), 
+        embedding_idxs=list([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        embedding_dims=list([32, 8, 8, 8, 8, 8, 8, 8, 8, 8]),
         norm_feats=True, 
         dropout=0.2,
+        act=nn.SiLU,
         aggr="sum", # actually for the forms in the paper this has to be sum
-        pooling=pyg.nn.global_mean_pool, 
+        pooling='global_mean', 
         global_linear_dims=list([128, 64]),
         global_final_dim=5,
         *args, 
         **kwargs
     ):
         super(SingleGraphEGNN, self).__init__(*args, **kwargs)
+        
+        match pooling:
+            case 'global_mean':
+                pooling = pyg.nn.global_mean_pool
+            case 'global_max':
+                pooling = pyg.nn.global_max_pool   
+            case 'global_add':
+                pooling = pyg.nn.global_add_pool    
+                
         self.egnn = EGNNNetwork(
             n_layers=n_layers, 
             nf_dim=nf_dim, 
@@ -221,22 +219,20 @@ class SingleGraphEGNN(nn.Module):
             embedding_nums=embedding_nums, 
             embedding_idxs=embedding_idxs,
             embedding_dims=embedding_dims,
-            update_coors=update_coors, 
-            update_feats=update_feats, 
             norm_feats=norm_feats, 
             dropout=dropout,
             aggr=aggr,
+            act=act,
             pooling=pooling,
         )
         
         # for global graph info
         self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 217, global_linear_dims[0]))
         for dim1, dim2 in zip(global_linear_dims[:-1], global_linear_dims[1:]):
-            self.ffn.extend([nn.Linear(dim1, dim2), nn.ReLU()])
+            self.ffn.extend([nn.Linear(dim1, dim2), nn.LayerNorm(dim2), nn.ReLU()])
         
         self.ffn.append(nn.Linear(global_linear_dims[-1], global_final_dim))
         self.global_final_dim = global_final_dim 
-        
     
     def forward(self, input):
         data, graph_desc = input
@@ -262,48 +258,95 @@ class MultiGraphEGNN(nn.Module):
         dropout=0.2,
         aggr="sum", # actually for the forms in the paper this has to be sum
         aggr_graphs="lstm", 
-        aggr_kwargs=dict(),
-        pooling=pyg.nn.global_add_pool, 
+        lstm_kwargs=dict(),
+        pooling='global_mean', 
+        out_dim=128,
         global_linear_dims=list([128, 64]),
         global_final_dim=5,
         *args, 
         **kwargs
     ):
-        super(SingleGraphEGNN, self).__init__(*args, **kwargs)
-        self.egnn = EGNNNetwork(
-            n_layers=n_layers, 
-            nf_dim=nf_dim, 
-            edge_attr_dim=edge_attr_dim, 
-            m_dim=m_dim,
-            embedding_nums=embedding_nums, 
-            embedding_idxs=embedding_idxs,
-            embedding_dims=embedding_dims,
-            update_coors=update_coors, 
-            update_feats=update_feats, 
-            norm_feats=norm_feats, 
-            dropout=dropout,
-            aggr=aggr,
-            pooling=pooling,
-        )
+        super(MultiGraphEGNN, self).__init__(*args, **kwargs)
         
-        assert aggr_graphs in {"lstm", "sum", "concat", "max", "attn"}
+        match pooling:
+            case 'global_mean':
+                pooling = pyg.nn.global_mean_pool
+            case 'global_max':
+                pooling = pyg.nn.global_max_pool   
+            case 'global_add':
+                pooling = pyg.nn.global_add_pool       
+                
+        self.egnns = nn.ModuleList()
+        for i in range(5):
+            self.egnns.append(
+                EGNNNetwork(
+                    n_layers=n_layers, 
+                    nf_dim=nf_dim, 
+                    edge_attr_dim=edge_attr_dim, 
+                    m_dim=m_dim,
+                    embedding_nums=embedding_nums, 
+                    embedding_idxs=embedding_idxs,
+                    embedding_dims=embedding_dims,
+                    update_coors=update_coors, 
+                    update_feats=update_feats, 
+                    norm_feats=norm_feats, 
+                    dropout=dropout,
+                    aggr=aggr,
+                    pooling=pooling,
+                )
+            )
         
+        assert aggr_graphs in {"lstm", "sum", "concat", "max", "mean"}
+
+        self.aggr_graphs = aggr_graphs
+        self.intial_extractor = nn.Sequential()
         match aggr_graphs:
             case "lstm":
-                self.aggregator = nn.LSTM(aggr_kwargs) # we can do this since we know the graph permutation
+                lstm_out = lstm_kwargs['lstm_out']
+                del lstm_kwargs['lstm_out']
+                self.aggregator = agg.LSTMAggregation(
+                    in_channels=nf_dim, 
+                    out_channels=lstm_out
+                    **lstm_kwargs
+                ) # we can do this since we know the graph permutation
+                self.intial_extractor.extend([
+                    nn.Linear(lstm_kwargs['hidden_dim'], out_dim),
+                    nn.ReLU()
+                ])
             case "sum": 
                 self.aggregator = agg.SumAggregation()
+                self.intial_extractor.extend([
+                    nn.Linear(self.egnn.nf_dim_emb, out_dim),
+                    nn.ReLU()
+                ])
             case "max": 
                 self.aggregator = agg.MaxAggregation()
+                self.intial_extractor.extend([
+                    nn.Linear(self.egnn.nf_dim_emb, out_dim),
+                    nn.ReLU()
+                ])
+            case "max": 
+                self.aggregator = agg.MeanAggregation()
+                self.intial_extractor.extend([
+                    nn.Linear(self.egnn.nf_dim_emb, out_dim),
+                    nn.ReLU()
+                ])
             case "concat": 
                 self.aggregator = None
-            case "attn": 
-                self.aggregator = None
+                self.intial_extractor.extend([
+                    nn.Linear(self.egnn.nf_dim_emb * 5, out_dim),
+                    nn.ReLU()
+                ])
         
         # for global graph info
-        self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 217, global_linear_dims[0]))
+        self.ffn = nn.Sequential()
+        self.ffn.extend([nn.Linear(out_dim + 217, global_linear_dims[0]), nn.ReLU()])
         for dim1, dim2 in zip(global_linear_dims[:-1], global_linear_dims[1:]):
-            self.ffn.extend([nn.Linear(dim1, dim2), nn.ReLU()])
+            self.ffn.extend([nn.LayerNorm(dim1), nn.Linear(dim1, dim2), nn.ReLU()])
         
         self.ffn.append(nn.Linear(global_linear_dims[-1], global_final_dim))
         self.global_final_dim = global_final_dim 
+        
+        def forward(self, data: tuple):
+            descs = data[-1]
+            

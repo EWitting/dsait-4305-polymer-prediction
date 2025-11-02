@@ -8,45 +8,63 @@ metric:
 
 parameters:
   # Model architecture hyperparameters - dimensions
-  model.hidden_channels:
-    values: 
-      - [32] 
-      - [64]
-      - [128]
-      - [256]
-      - [128, 128]
-      - [256, 256]
-      - [64, 64, 64]
-      - [128, 128, 128]
-      - [64, 128, 256, 128, 64] 
-      - [64, 64, 64, 64, 64]
+  model.n_layers:
+    values: [2, 4, 8, 12]
 
-  model.hidden_layers:
+  model.m_dim:
+    values: [8, 16, 32, 64]
+
+  model.aggr:
+    values: ['mean', 'max', 'min', 'softmax']
+
+  model.pooling:
+    values: ['global_mean', 'global_max', 'global_add']
+
+  model.embedding_dims:
     values:
-      - [16]
-      - [32]
-      - [64]
-      - [16, 32]
-      - [32, 16]
-      - [32, 64]
-      - [64, 128]
-      - [128, 64]
-  
-  # GAT-specific parameters
-  model.heads:
-    values: [4, 8, 16, 32]
-  
+      - [8, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+      - [16, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+      - [32, 16, 8, 8, 8, 8, 8, 8, 8, 8]
+      - [64, 32, 16, 16, 8, 8, 8, 8, 8, 8]
+      - [64, 32, 32, 16, 16, 16, 16, 16, 16, 16]
+      - [64, 64, 64, 32, 32, 32, 32, 32, 32, 32]
+
   model.dropout:
     distribution: uniform
     min: 0.0
-    max: 0.5
-  
-  model.residual:
-    values: [true, false]
+    max: 0.4
+
+  model.global_linear_dims:
+    values: 
+      # Single layer
+      - [64]
+      - [128]
+      - [256]
+      # Two layers
+      - [128, 128]
+      - [256, 128]
+      - [128, 256]
+      - [256, 256]
+      # Three layers
+      - [128, 128, 128]
+      - [256, 128, 64]
+      - [128, 256, 128]
+      - [64, 128, 256]
+      - [256, 256, 256]
 
   # Fixed parameters
   trainer.max_epochs:
-    value: 50
+    value: 35
+  
+  optimizer.lr:
+    distribution: log_uniform_values
+    min: 1e-6
+    max: 1e-3
+
+  optimizer.weight_decay:
+    distribution: log_uniform_values
+    min: 1e-20
+    max: 1e-3
 
 # Fixed parameters (not swept) - keeping learning rate and batch size constant
 command:
@@ -54,13 +72,17 @@ command:
   - uv
   - run
   - ${program}
-  - model=gat
+  - model=egnn_single
+  - data=3d_conformers
+  - data.compute_desc=true
+  - crossval=false
+  - data.val_size=0.2
   - ${args_no_hyphens}
 
 # Early termination for poor performing runs
 early_terminate:
   type: hyperband
-  min_iter: 3
+  min_iter: 5
   eta: 2
   s: 2
 

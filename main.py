@@ -271,7 +271,7 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     
     # Handle scheduler - it might be None/null in config
     scheduler = None
-    if "scheduler" in cfg and cfg.scheduler is not None:
+    if "scheduler" in cfg and (cfg.scheduler is not None or cfg.scheduler.get("_target_", None) is not None):
         scheduler_obj = instantiate(cfg.scheduler)
         scheduler = scheduler_obj(optimizer) if callable(scheduler_obj) else scheduler_obj
     
@@ -352,8 +352,8 @@ def main(cfg: DictConfig):
         raw_train_data = pd.read_pickle(data_path)
         graph_descriptors = None
         if cfg.data.compute_desc:
-            from src.preprocessing.rdkit_descriptors import RDKitDescriptorsPreprocessor
-            graph_descriptors = RDKitDescriptorsPreprocessor().fit_transform(raw_train_data['SMILES'])
+            descs_path = os.path.join(cfg.data.data_dir, 'descs.pt')
+            graph_descriptors = torch.load(descs_path)
             raw_train_data['descs'] = list(graph_descriptors)
             # raw_train_data['descs'] = list(torch.randn((7973, 217)))
         # for now just one graph 
@@ -408,6 +408,7 @@ def main(cfg: DictConfig):
         cv = KFold(n_splits=cfg.data.n_splits, shuffle=True, random_state=cfg.data.random_state)
         fold_metrics = []
         
+        
         for fold_idx, (train_idx, val_idx) in enumerate(cv.split(X_trainval)):
             print(f"\nFold {fold_idx + 1}/{cfg.data.n_splits}")
             print('-'*60)
@@ -433,14 +434,17 @@ def main(cfg: DictConfig):
         
         # Aggregate results
         avg_metrics = {}
+        std_metrics = {}
         for key in fold_metrics[0].keys():
             avg_metrics[key] = np.mean([m[key] for m in fold_metrics])
+            std_metrics[key] = np.std([m[key] for m in fold_metrics])
+            
         
         print(f"\n{'='*60}")
         print("Cross-Validation Results (averaged over folds):")
         print('='*60)
         for key, value in avg_metrics.items():
-            print(f"{key}: {value:.4f}")
+            print(f"{key}: {value:.4f} ± {std_metrics[key]:.4f}")
         
     else:
         print(f"\n{'='*60}")

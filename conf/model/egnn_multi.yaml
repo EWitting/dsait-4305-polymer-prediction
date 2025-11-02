@@ -1,9 +1,10 @@
-_target_: src.models.egnn.SingleGraphEGNN
+_target_: src.models.egnn.MultiGraphEGNN
 
 n_layers: 7                    
-m_dim: 128
+m_dim: 32
 dropout: 0.1
 global_linear_dims: [128, 128]
+update_coors: false
 aggr: mean
 embedding_dims: [32, 8, 8, 8, 8, 8, 8, 8, 8, 8]
 pooling: global_mean

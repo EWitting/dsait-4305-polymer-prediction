@@ -1,7 +1,7 @@
 # Data Configuration
 data_dir: "data/processed"
 train_file: "train_processed.pkl"
-intervals: ["graph_[4A-6A]"] # can be a list also
+intervals: ["graph_[2A-4A]"] # can be a list also
 compute_desc: false
 
 # Target properties to predict
