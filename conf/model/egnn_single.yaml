@@ -4,7 +4,7 @@ n_layers: 8
 m_dim: 16
 dropout: 0.05
 global_linear_dims: [256, 128, 64]
-aggr: softmax
+aggr: min
 embedding_dims: [64, 32, 16, 16, 8, 8, 8, 8, 8, 8]
 pooling: global_max
 use_descs: true
