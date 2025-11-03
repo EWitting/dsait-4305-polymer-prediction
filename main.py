@@ -459,8 +459,7 @@ def main(cfg: DictConfig):
         print(f"\n{'='*60}")
         print("Cross-Validation Results (averaged over folds):")
         print('='*60)
-        keys = ['train_score', 'val_score', 'val_score_smoothed', 'val_score_upper', 
-                'val_score_lower', 'val_score_smoothed_upper', 'val_score_smoothed_lower']
+        keys = ['train_score', 'val_score', 'val_score_smoothed',]
         for key in keys:
             print(f"{key}: {avg_metrics[key]:.4f} ± {std_metrics[key]:.4f} [{ci_metrics[key + '_lower']}, {ci_metrics[key + '_upper']}]")
             
