@@ -8,4 +8,4 @@ heads: 4
 edge_dim: null
 dropout: 0.2
 residual: true
-
+use_descs: false

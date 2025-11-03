@@ -20,6 +20,8 @@ from omegaconf import DictConfig, OmegaConf
 
 import petname
 
+from collections import defaultdict
+
 from src.loss.masked_loss import WeightedMAELoss
 from src.preprocessing.fusionpreprocess import collate_fusion_fn
 from src.utils.running_mean import RunningMean
@@ -444,9 +446,14 @@ def main(cfg: DictConfig):
         # Aggregate results
         avg_metrics = {}
         std_metrics = {}
+        ci_metrics = {}
+        folds = defaultdict(list)
         for key in fold_metrics[0].keys():
             avg_metrics[key] = np.mean([m[key] for m in fold_metrics])
             std_metrics[key] = np.std([m[key] for m in fold_metrics])
+            ci_metrics[key + '_upper'] = np.percentile([m[key] for m in fold_metrics], q=95)
+            ci_metrics[key + '_lower'] = np.percentile([m[key] for m in fold_metrics], q=5)
+            folds[key].extend([m[key] for m in fold_metrics])
             
         
         print(f"\n{'='*60}")
@@ -454,6 +461,12 @@ def main(cfg: DictConfig):
         print('='*60)
         for key, value in avg_metrics.items():
             print(f"{key}: {value:.4f} ± {std_metrics[key]:.4f}")
+            
+        print(f"\n{'='*60}")
+        print("Cross-Validation Results (per fold):")
+        print('='*60)
+        for key, value in folds.items():
+            print(f"{key}: {value}")
         
     else:
         print(f"\n{'='*60}")

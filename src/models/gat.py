@@ -78,7 +78,7 @@ class GATv2(torch.nn.Module):
         else:
             data = data
             
-        x = data.x
+        x = data.x.float()
         attn_collected = []
 
         for block_idx in range(0, len(self.attention_layers), 2):
@@ -124,7 +124,7 @@ class GATv2(torch.nn.Module):
                     edge_idx = edge_idx[0]
                 attn_collected.append((edge_idx.detach().cpu() if hasattr(edge_idx, 'detach') else edge_idx, attn_t))
 
-        x = self.global_pool(x[0], x[3])
+        x = self.global_pool(x, data.batch)
         
         if self.use_descs:
             x = torch.cat([x, descs], dim=-1)

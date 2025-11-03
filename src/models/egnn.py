@@ -123,6 +123,7 @@ class EGNNNetwork(nn.Module):
         act=nn.SiLU,
         aggr="sum",
         pooling=pyg.nn.global_mean_pool,
+        use_embeddings=True,
         *args,
         **kwargs
     ):
@@ -131,12 +132,14 @@ class EGNNNetwork(nn.Module):
         self.emb_idxs = embedding_idxs
         self.nf_dim = nf_dim
         self.nf_dim_emb = nf_dim
+        self.use_embeddings = use_embeddings
         
         # handle embeddings 
-        self.emb_layers = nn.ModuleList()
-        for emb_num, emb_dim in zip(embedding_nums, embedding_dims):
-            self.emb_layers.append(nn.Embedding(emb_num, emb_dim))
-            self.nf_dim_emb += emb_dim - 1
+        if self.use_embeddings:
+            self.emb_layers = nn.ModuleList()
+            for emb_num, emb_dim in zip(embedding_nums, embedding_dims):
+                self.emb_layers.append(nn.Embedding(emb_num, emb_dim))
+                self.nf_dim_emb += emb_dim - 1
         
         self.mp_layers = nn.ModuleList()
         self.edge_attr_dim = edge_attr_dim
@@ -165,7 +168,7 @@ class EGNNNetwork(nn.Module):
     def forward(self, data: Data):
         # get the embeddings 
         x, edge_index, edge_attr, coors, batch = data.x, data.edge_index, data.edge_attr.float(), data.pos.float(), data.batch
-        x = self.embed(x)
+        x = self.embed(x) if self.use_embeddings else x
         
         edge_index, edge_attr = add_self_loops(edge_index, edge_attr, fill_value=0.0)
         for i, layer in enumerate(self.mp_layers):
@@ -198,6 +201,7 @@ class SingleGraphEGNN(nn.Module):
         pooling='global_mean', 
         global_linear_dims=list([128, 64]),
         use_descs=True,
+        use_embeddings=True,
         global_final_dim=5,
         *args, 
         **kwargs
@@ -225,6 +229,7 @@ class SingleGraphEGNN(nn.Module):
             aggr=aggr,
             act=act,
             pooling=pooling,
+            use_embeddings=use_embeddings
         )
         
         # for global graph info
