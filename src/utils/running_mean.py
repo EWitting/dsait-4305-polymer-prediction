@@ -9,4 +9,5 @@ class RunningMean:
 
     @property
     def mean(self):
+        print(self.values)
         return sum(self.values)/len(self.values)

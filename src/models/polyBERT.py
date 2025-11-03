@@ -47,7 +47,7 @@ class PolyBERTForRegression(pl.LightningModule):
         self.loss_fn = WeightedMAELoss(property_ranges, num_samples_per_property)
 
         self.learning_rate = learning_rate
-        self.running_mean = RunningMean(8)
+        self.val_running_mean = RunningMean()
 
     def forward(self, input_ids: Tensor, attention_mask: Tensor = None) -> Tensor:
         outputs = self.polybert(input_ids=input_ids, attention_mask=attention_mask)
@@ -76,9 +76,14 @@ class PolyBERTForRegression(pl.LightningModule):
         loss = self.loss_fn(predictions, labels)
 
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True)
-        self.running_mean.update(loss.item())
-        self.log('val_loss_smoothed', self.val_epoch_mean.mean, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
         return loss
+    
+    def on_validation_epoch_end(self):
+        val_outputs = self.trainer.callback_metrics  
+        mean_val_loss = val_outputs.get("val_loss")  
+        if mean_val_loss is not None:
+            self.val_running_mean.update(mean_val_loss.item())
+            self.log("val_loss_smoothed", self.val_running_mean.mean, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         input_ids = batch['input_ids']

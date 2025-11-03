@@ -19,7 +19,8 @@ class GATv2(torch.nn.Module):
         heads: int = 8, 
         edge_dim: int | None = None, 
         dropout: float = 0.1, 
-        residual: bool = True
+        residual: bool = True, 
+        use_descs: bool = False
     ):
         super().__init__()
         self.attention_layers = nn.ModuleList()
@@ -48,17 +49,20 @@ class GATv2(torch.nn.Module):
                 nn.Linear(heads * out_dim, out_dim)]
             )
     
-        # Hierachal pooling here #TODO
-        self.pooling1 = ASAPooling(in_channels=hidden_channels[-1], add_self_loops=True)
         self.global_pool = global_mean_pool
         
-        self.fcs = nn.Sequential(nn.Linear(hidden_channels[-1], hidden_layers[0]), nn.ReLU())
+        if use_descs:
+            self.fcs = nn.Sequential(nn.Linear(hidden_channels[-1] + 217, hidden_layers[0]), nn.ReLU())
+        else:
+            self.fcs = nn.Sequential(nn.Linear(hidden_channels[-1], hidden_layers[0]), nn.ReLU())
+            
         for in_dim, out_dim in zip(hidden_layers[:-1], hidden_layers[1:]):
             self.fcs.extend(
                 [nn.Linear(in_dim, out_dim), nn.ReLU()]
             ) 
         self.fcs.append(nn.Linear(hidden_layers[-1], 5))
         self.act = act
+        self.use_descs = use_descs
     
     def forward(self, data: Data, return_attn: bool = False):
         """Forward pass.
@@ -69,6 +73,11 @@ class GATv2(torch.nn.Module):
         This is a minimal, backward-compatible extension used for
         post-hoc explainability.
         """
+        if self.use_descs:
+            data, descs = data
+        else:
+            data = data
+            
         x = data.x
         attn_collected = []
 
@@ -115,8 +124,10 @@ class GATv2(torch.nn.Module):
                     edge_idx = edge_idx[0]
                 attn_collected.append((edge_idx.detach().cpu() if hasattr(edge_idx, 'detach') else edge_idx, attn_t))
 
-        pool_out = self.pooling1(x, data.edge_index, batch=data.batch)
-        x = self.global_pool(pool_out[0], pool_out[3])
+        x = self.global_pool(x[0], x[3])
+        
+        if self.use_descs:
+            x = torch.cat([x, descs], dim=-1)
         out = self.fcs(x)
 
         if return_attn:

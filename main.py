@@ -123,7 +123,7 @@ class LightningModel(pl.LightningModule):
         self.scheduler = scheduler
         self.loss_fn = loss_fn
         self.batch_size = batch_size
-        self.val_epoch_mean = RunningMean(maxlen=8)
+        self.val_running_mean = RunningMean()
         # Save hyperparameters for wandb/tensorboard logging
         if hparams:
             self.save_hyperparameters(hparams)
@@ -143,10 +143,14 @@ class LightningModel(pl.LightningModule):
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
-        
-        self.val_epoch_mean.update(loss.item())
-        self.log('val_loss_smoothed', self.val_epoch_mean.mean, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
         return loss
+    
+    def on_validation_epoch_end(self):
+        val_outputs = self.trainer.callback_metrics  
+        mean_val_loss = val_outputs.get("val_loss")  
+        if mean_val_loss is not None:
+            self.val_running_mean.update(mean_val_loss.item())
+            self.log("val_loss_smoothed", self.val_running_mean.mean, prog_bar=True)
     
     def test_step(self, batch):
         x, y = batch
@@ -323,7 +327,7 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     if val_dataloader is not None:
         val_results = trainer.callback_metrics
         metrics['val_score'] = val_results.get('val_loss', torch.tensor(0.0)).item() if val_results else 0.0
-        metrics['val_score_smoothed'] = val_results.get('val_score_smoothed', torch.tensor(0.0)).item() if val_results else 0.0
+        metrics['val_score_smoothed'] = val_results.get('val_loss_smoothed', torch.tensor(0.0)).item() if val_results else 0.0
     
     if test_dataloader is not None:
         test_results = trainer.test(lightning_model, test_dataloader)
