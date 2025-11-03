@@ -197,6 +197,7 @@ class SingleGraphEGNN(nn.Module):
         aggr="sum", # actually for the forms in the paper this has to be sum
         pooling='global_mean', 
         global_linear_dims=list([128, 64]),
+        use_descs=True,
         global_final_dim=5,
         *args, 
         **kwargs
@@ -227,17 +228,28 @@ class SingleGraphEGNN(nn.Module):
         )
         
         # for global graph info
-        self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 217, global_linear_dims[0]))
+        if use_descs:
+            self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 217, global_linear_dims[0]))
+        else:
+            self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb, global_linear_dims[0]))
+            
         for dim1, dim2 in zip(global_linear_dims[:-1], global_linear_dims[1:]):
             self.ffn.extend([nn.Linear(dim1, dim2), nn.LayerNorm(dim2), nn.ReLU()])
         
         self.ffn.append(nn.Linear(global_linear_dims[-1], global_final_dim))
         self.global_final_dim = global_final_dim 
+        self.use_descs = use_descs
     
     def forward(self, input):
-        data, graph_desc = input
+        if self.use_descs:
+            data, graph_desc = input
+        else:
+            data = input
         egnn_res = self.egnn(data)
-        full_inp = torch.cat([egnn_res, graph_desc], dim=-1)
+        if self.use_descs:
+            full_inp = torch.cat([egnn_res, graph_desc], dim=-1)
+        else:
+            full_inp = egnn_res
         return self.ffn(full_inp)
     
     

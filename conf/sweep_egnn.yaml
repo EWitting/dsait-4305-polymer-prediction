@@ -54,7 +54,7 @@ parameters:
 
   # Fixed parameters
   trainer.max_epochs:
-    value: 35
+    value: 25
   
   optimizer.lr:
     distribution: log_uniform_values
@@ -78,8 +78,7 @@ command:
   - crossval=false
   - data.val_size=0.2
   - ${args_no_hyphens}
-
-# Early termination for poor performing runs
+  
 early_terminate:
   type: hyperband
   min_iter: 5

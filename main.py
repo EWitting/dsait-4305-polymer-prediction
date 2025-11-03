@@ -22,6 +22,7 @@ import petname
 
 from src.loss.masked_loss import WeightedMAELoss
 from src.preprocessing.fusionpreprocess import collate_fusion_fn
+from src.utils.running_mean import RunningMean
 
 print('Finished importing libraries.')
 print(f'CUDA available: {torch.cuda.is_available()}')
@@ -113,7 +114,6 @@ class MultiGraphDataset(Dataset):
     def __getitem__(self, idx):
         return (self.graphs[idx], self.descs[idx]), self.labels[idx]
 
-
 # Wrap the model in a LightningModule
 class LightningModel(pl.LightningModule):
     def __init__(self, model, optimizer, scheduler, loss_fn, batch_size, hparams=None):
@@ -123,6 +123,7 @@ class LightningModel(pl.LightningModule):
         self.scheduler = scheduler
         self.loss_fn = loss_fn
         self.batch_size = batch_size
+        self.val_epoch_mean = RunningMean(maxlen=8)
         # Save hyperparameters for wandb/tensorboard logging
         if hparams:
             self.save_hyperparameters(hparams)
@@ -142,6 +143,9 @@ class LightningModel(pl.LightningModule):
         y_hat = self(x)
         loss = self.loss_fn(y_hat, y)
         self.log('val_loss', loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
+        
+        self.val_epoch_mean.update(loss.item())
+        self.log('val_loss_smoothed', self.val_epoch_mean.mean, on_step=False, on_epoch=True, prog_bar=True, batch_size=self.batch_size)
         return loss
     
     def test_step(self, batch):
@@ -211,7 +215,7 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
         Y_val = torch.tensor(Y_val, dtype=torch.float32) if Y_val is not None else None
         Y_test = torch.tensor(Y_test, dtype=torch.float32) if Y_test is not None else None
     
-    if cfg.data.compute_desc:
+    if cfg.data.get('compute_desc', False):
         train_dataset = dataset_cls(X_train_processed, train_descs, Y_train)
         val_dataset = dataset_cls(X_val_processed, val_descs, Y_val) if X_val is not None else None
         test_dataset = dataset_cls(X_test_processed, test_descs, Y_test) if X_test is not None else None
@@ -319,6 +323,7 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     if val_dataloader is not None:
         val_results = trainer.callback_metrics
         metrics['val_score'] = val_results.get('val_loss', torch.tensor(0.0)).item() if val_results else 0.0
+        metrics['val_score_smoothed'] = val_results.get('val_score_smoothed', torch.tensor(0.0)).item() if val_results else 0.0
     
     if test_dataloader is not None:
         test_results = trainer.test(lightning_model, test_dataloader)
@@ -351,7 +356,7 @@ def main(cfg: DictConfig):
         print('Loading pickle...')
         raw_train_data = pd.read_pickle(data_path)
         graph_descriptors = None
-        if cfg.data.compute_desc:
+        if cfg.data.get('compute_desc', False):
             descs_path = os.path.join(cfg.data.data_dir, 'descs.pt')
             graph_descriptors = torch.load(descs_path)
             raw_train_data['descs'] = list(graph_descriptors)
