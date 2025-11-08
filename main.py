@@ -106,15 +106,27 @@ class DescGraphDataset(Dataset):
     
 class MultiGraphDataset(Dataset):
     def __init__(self, graphs, descs, labels):
-        self.graphs = graphs
+        self.graphs1, self.graphs2, self.graphs3, self.graphs4, self.graphs5 = [], [], [], [], []
+        for i in graphs:
+            self.graphs1.append(i[0])
+            self.graphs2.append(i[1])
+            self.graphs3.append(i[2])
+            self.graphs4.append(i[3])
+            self.graphs5.append(i[4])
+        
         self.descs = torch.stack(descs)
         self.labels = torch.tensor(labels, dtype=torch.float32)
     
     def __len__(self):
-        return len(self.graphs)
+        return len(self.graphs1)
     
     def __getitem__(self, idx):
-        return (self.graphs[idx], self.descs[idx]), self.labels[idx]
+        return (self.graphs1[idx], 
+                self.graphs2[idx],
+                self.graphs3[idx],
+                self.graphs4[idx],
+                self.graphs5[idx],
+                self.descs[idx]), self.labels[idx]
 
 # Wrap the model in a LightningModule
 class LightningModel(pl.LightningModule):
@@ -174,7 +186,7 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
     """Train a single fold and return metrics."""
     
     # Preprocess data
-    if cfg.data.dataset_type == '3d':
+    if cfg.data.dataset_type == '3d' or cfg.data.dataset_type == "multi_3d":
         X_train_processed = X_train
         X_val_processed = X_val
         X_test_processed = X_test
@@ -208,7 +220,17 @@ def train_fold(cfg, X_train, Y_train, X_val, Y_val, X_test, Y_test,
             X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
         
     elif dataset_type == 'multi_3d':
-        pass #TODO
+        dataset_cls = MultiGraphDataset
+        
+        train_descs = X_train_processed['descs'].to_list()
+        val_descs = X_val_processed['descs'].to_list()
+        if cfg.data.test_split > 0:
+            test_descs = X_test_processed['descs'].to_list()
+        
+        X_train_processed = X_train_processed[cfg.data.intervals].values.squeeze()
+        X_val_processed = X_val_processed[cfg.data.intervals].values.squeeze()
+        if cfg.data.test_split > 0:
+            X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
     elif dataset_type == 'polybert':
         dataset_cls = PolyBERTDataset
     elif dataset_type == 'fusion':
@@ -358,7 +380,7 @@ def main(cfg: DictConfig):
     # =================== Data Loading ===================
     print("\nLoading data...")
     data_path = os.path.join(cfg.data.data_dir, cfg.data.train_file)
-    if cfg.data.dataset_type == "3d":
+    if cfg.data.dataset_type == "3d" or cfg.data.dataset_type == "multi_3d":
         print('Loading pickle...')
         raw_train_data = pd.read_pickle(data_path)
         graph_descriptors = None
@@ -424,7 +446,7 @@ def main(cfg: DictConfig):
             print(f"\nFold {fold_idx + 1}/{cfg.data.n_splits}")
             print('-'*60)
             
-            if cfg.data.dataset_type == "3d":
+            if cfg.data.dataset_type == "3d" or cfg.data.dataset_type == "multi_3d":
                 X_train = X_trainval.iloc[train_idx]
                 Y_train = Y_trainval[train_idx]
                 X_val = X_trainval.iloc[val_idx]

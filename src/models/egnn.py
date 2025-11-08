@@ -263,19 +263,20 @@ class MultiGraphEGNN(nn.Module):
     def __init__(
         self, 
         n_layers=7, 
-        nf_dim=48, 
-        edge_attr_dim=2, 
+        nf_dim=24, 
+        edge_attr_dim=1, 
         m_dim=32,
-        embedding_nums=list([118, 8, 2, 2, 9]), 
-        embedding_idxs=list([1, 4, 5, 7, 8]),
-        embedding_dims=list([32, 16, 4, 4, 16]),
-        update_coors=True, 
-        update_feats=True, 
+        embedding_nums=list([119, 11, 12, 8, 2, 9, 2, 9, 5, 7]), 
+        embedding_idxs=list([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+        embedding_dims=list([32, 8, 8, 8, 8, 8, 8, 8, 8, 8]),
         norm_feats=True, 
         dropout=0.2,
         aggr="sum", # actually for the forms in the paper this has to be sum
         aggr_graphs="lstm", 
-        lstm_kwargs=dict(),
+        lstm_kwargs={
+            'hidden_size': 128, 
+            'bidirectional': True
+        },
         pooling='global_mean', 
         out_dim=128,
         global_linear_dims=list([128, 64]),
@@ -304,8 +305,6 @@ class MultiGraphEGNN(nn.Module):
                     embedding_nums=embedding_nums, 
                     embedding_idxs=embedding_idxs,
                     embedding_dims=embedding_dims,
-                    update_coors=update_coors, 
-                    update_feats=update_feats, 
                     norm_feats=norm_feats, 
                     dropout=dropout,
                     aggr=aggr,
@@ -317,41 +316,25 @@ class MultiGraphEGNN(nn.Module):
 
         self.aggr_graphs = aggr_graphs
         self.intial_extractor = nn.Sequential()
+        lstm_kwargs['input_size'] = self.egnns[0].nf_dim_emb
         match aggr_graphs:
             case "lstm":
-                lstm_out = lstm_kwargs['lstm_out']
-                del lstm_kwargs['lstm_out']
-                self.aggregator = agg.LSTMAggregation(
-                    in_channels=nf_dim, 
-                    out_channels=lstm_out
+                self.aggregator = nn.LSTM(
                     **lstm_kwargs
                 ) # we can do this since we know the graph permutation
                 self.intial_extractor.extend([
-                    nn.Linear(lstm_kwargs['hidden_dim'], out_dim),
-                    nn.ReLU()
-                ])
-            case "sum": 
-                self.aggregator = agg.SumAggregation()
-                self.intial_extractor.extend([
-                    nn.Linear(self.egnn.nf_dim_emb, out_dim),
-                    nn.ReLU()
-                ])
-            case "max": 
-                self.aggregator = agg.MaxAggregation()
-                self.intial_extractor.extend([
-                    nn.Linear(self.egnn.nf_dim_emb, out_dim),
-                    nn.ReLU()
-                ])
-            case "max": 
-                self.aggregator = agg.MeanAggregation()
-                self.intial_extractor.extend([
-                    nn.Linear(self.egnn.nf_dim_emb, out_dim),
+                    nn.Linear(2 * lstm_kwargs['hidden_size'], out_dim),
                     nn.ReLU()
                 ])
             case "concat": 
                 self.aggregator = None
                 self.intial_extractor.extend([
-                    nn.Linear(self.egnn.nf_dim_emb * 5, out_dim),
+                    nn.Linear(self.egnns[0].nf_dim_emb * 5, out_dim),
+                    nn.ReLU()
+                ])
+            case _: 
+                self.intial_extractor.extend([
+                    nn.Linear(self.egnns[0].nf_dim_emb, out_dim),
                     nn.ReLU()
                 ])
         
@@ -364,6 +347,33 @@ class MultiGraphEGNN(nn.Module):
         self.ffn.append(nn.Linear(global_linear_dims[-1], global_final_dim))
         self.global_final_dim = global_final_dim 
         
-        def forward(self, data: tuple):
-            descs = data[-1]
+    def forward(self, data: tuple):
+        descs = data[-1]
+        outputs = []
+        for egnn, graph in zip(self.egnns, data[:-1]):
+            outputs.append(egnn(graph))
             
+        match self.aggr_graphs:
+            case "lstm":
+                inp = torch.stack(outputs, dim=0)
+                _, (hidden_repr, _) = self.aggregator(inp)
+                inp_dim = hidden_repr.size(-1)
+                hidden_repr = self.intial_extractor(hidden_repr.view(-1, 2*inp_dim))
+            case "concat":
+                inp = torch.concat(outputs, dim=-1)
+                hidden_repr = self.intial_extractor(inp)
+            case "min":
+                inp = torch.stack(outputs, dim=0).min(dim=0)[0]
+                hidden_repr = self.intial_extractor(inp)
+            case "max":
+                inp = torch.stack(outputs, dim=0).max(dim=0)[0]
+                hidden_repr = self.intial_extractor(inp)
+            case "mean":
+                inp = torch.stack(outputs, dim=0).mean(dim=0)
+                hidden_repr = self.intial_extractor(inp)
+            case "sum":
+                inp = torch.stack(outputs, dim=0).sum(dim=0)
+                hidden_repr = self.intial_extractor(inp)
+                
+        full_inp = torch.cat([hidden_repr, descs], dim=-1)
+        return self.ffn(full_inp)
