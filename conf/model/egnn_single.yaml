@@ -7,5 +7,6 @@ global_linear_dims: [256, 128, 64]
 aggr: min
 embedding_dims: [64, 32, 16, 16, 8, 8, 8, 8, 8, 8]
 pooling: global_max
-use_descs: true
+use_descs: false
 use_embeddings: true
+use_reprs: true

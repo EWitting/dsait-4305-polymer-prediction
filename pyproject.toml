@@ -27,6 +27,7 @@ dependencies = [
     "python-dateutil>=2.9.0.post0",
     "egnn-pytorch>=0.2.8",
     "xgboost>=2.1.4",
+    "statsmodels>=0.14.1",
 ]
 
 

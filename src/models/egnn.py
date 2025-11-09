@@ -201,6 +201,7 @@ class SingleGraphEGNN(nn.Module):
         pooling='global_mean', 
         global_linear_dims=list([128, 64]),
         use_descs=True,
+        use_reprs=True, 
         use_embeddings=True,
         global_final_dim=5,
         *args, 
@@ -233,8 +234,10 @@ class SingleGraphEGNN(nn.Module):
         )
         
         # for global graph info
-        if use_descs:
+        if use_descs and not use_reprs:
             self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 217, global_linear_dims[0]))
+        elif use_reprs: 
+            self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb + 1536, global_linear_dims[0]))
         else:
             self.ffn = nn.Sequential(nn.Linear(self.egnn.nf_dim_emb, global_linear_dims[0]))
             
@@ -244,14 +247,15 @@ class SingleGraphEGNN(nn.Module):
         self.ffn.append(nn.Linear(global_linear_dims[-1], global_final_dim))
         self.global_final_dim = global_final_dim 
         self.use_descs = use_descs
+        self.use_reprs = use_reprs
     
     def forward(self, input):
-        if self.use_descs:
+        if self.use_descs or self.use_reprs:
             data, graph_desc = input
         else:
             data = input
         egnn_res = self.egnn(data)
-        if self.use_descs:
+        if self.use_descs or self.use_reprs:
             full_inp = torch.cat([egnn_res, graph_desc], dim=-1)
         else:
             full_inp = egnn_res

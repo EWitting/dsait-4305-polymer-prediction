@@ -3,6 +3,7 @@ import os
 import numpy as np
 import pandas as pd
 import random
+import dill
 import warnings
 import wandb
 from sklearn.model_selection import train_test_split, KFold
@@ -251,13 +252,13 @@ def train_fold(
 
     if dataset_type == "graph":
         dataset_cls = GraphDataset
-    elif dataset_type == "3d" and not cfg.data.compute_desc:
+    elif dataset_type == "3d" and not cfg.data.compute_desc and not cfg.data.use_reprs:
         dataset_cls = GraphDataset
         X_train_processed = X_train_processed[cfg.data.intervals[0]].values
         X_val_processed = X_val_processed[cfg.data.intervals[0]].values
         if cfg.data.test_split > 0:
             X_test_processed = X_test_processed[cfg.data.intervals[0]].values
-    elif dataset_type == "3d" and cfg.data.compute_desc:
+    elif dataset_type == "3d" and cfg.data.compute_desc or cfg.data.use_reprs:
         dataset_cls = DescGraphDataset
 
         train_descs = X_train_processed["descs"].to_list()
@@ -265,10 +266,10 @@ def train_fold(
         if cfg.data.test_split > 0:
             test_descs = X_test_processed["descs"].to_list()
 
-        X_train_processed = X_train_processed[cfg.data.intervals].values.squeeze()
-        X_val_processed = X_val_processed[cfg.data.intervals].values.squeeze()
+        X_train_processed = X_train_processed[cfg.data.intervals[0]].values.squeeze()
+        X_val_processed = X_val_processed[cfg.data.intervals[0]].values.squeeze()
         if cfg.data.test_split > 0:
-            X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
+            X_test_processed = X_test_processed[cfg.data.intervals[0]].values.squeeze()
 
     elif dataset_type == "multi_3d":
         dataset_cls = MultiGraphDataset
@@ -296,7 +297,7 @@ def train_fold(
             torch.tensor(Y_test, dtype=torch.float32) if Y_test is not None else None
         )
 
-    if cfg.data.get("compute_desc", False):
+    if cfg.data.get("compute_desc", False) or cfg.data.get("use_reprs", False):
         train_dataset = dataset_cls(X_train_processed, train_descs, Y_train)
         val_dataset = (
             dataset_cls(X_val_processed, val_descs, Y_val)
@@ -546,11 +547,20 @@ def main(cfg: DictConfig):
         print("Loading pickle...")
         raw_train_data = pd.read_pickle(data_path)
         graph_descriptors = None
-        if cfg.data.get("compute_desc", False):
+        if cfg.data.get("compute_desc", False) and not cfg.data.get("use_reprs", False):
             descs_path = os.path.join(cfg.data.data_dir, "descs.pt")
             graph_descriptors = torch.load(descs_path)
             raw_train_data["descs"] = list(graph_descriptors)
             # raw_train_data['descs'] = list(torch.randn((7973, 217)))
+        elif cfg.data.get("use_reprs", False):
+            descs_path = os.path.join(cfg.data.data_dir, "reprs_v2.pl")
+            with open(descs_path, "rb") as f:
+                unimol_reprs = dill.load(f)
+                f.close()
+            reprs = []
+            for i, rep in enumerate(unimol_reprs["cls_repr"]):
+                reprs.append(torch.from_numpy(rep))
+            raw_train_data["descs"] = reprs
         # for now just one graph
         X = raw_train_data
         Y = raw_train_data[cfg.data.label_names].values
