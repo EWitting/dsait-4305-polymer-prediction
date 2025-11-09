@@ -1,0 +1,10 @@
+_target_: src.ssl.SSLModels.ContrastiveModel
+backbone: ${model}
+optimizer_cfg: ${optimizer}
+scheduler_cfg: null
+backbone_output_dim: 64
+
+temperature: 0.1
+drop_p: 0.1
+mask_p: 0.2
+edge_drop_p: 0.2
