@@ -24,6 +24,7 @@ dependencies = [
     "huggingface-hub>=0.36.0",
     "egnn-pytorch>=0.2.8",
     "xgboost>=2.1.4",
+    "statsmodels>=0.14.1",
 ]
 
 

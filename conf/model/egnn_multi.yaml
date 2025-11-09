@@ -1,10 +1,10 @@
 _target_: src.models.egnn.MultiGraphEGNN
 
 n_layers: 8                   
-m_dim: 16
-dropout: 0.05
-global_linear_dims: [256, 128, 64]
+m_dim: 8
+dropout: 0.1
+global_linear_dims: [128, 128, 64]
 aggr: min
-embedding_dims: [32, 16, 16, 16, 8, 8, 8, 8, 8, 8]
+embedding_dims: [32, 8, 8, 8, 8, 8, 8, 8, 8, 8]
 pooling: global_max
-aggr_graphs: max
+aggr_graphs: concat
