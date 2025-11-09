@@ -1,8 +1,8 @@
 # Data Configuration
 data_dir: "data/processed"
 train_file: "train_processed.pkl"
-intervals: ["graph_[2A-4A]"] # can be a list also
-compute_desc: false
+intervals: ["graph_[0A-2A]", "graph_[2A-4A]", "graph_[4A-6A]", "graph_[6A-8A]", "graph_[8A-infA]"] # can be a list also
+compute_desc: true
 
 # Target properties to predict
 label_names:
@@ -13,13 +13,13 @@ label_names:
   - Rg
 
 # Data split configuration
-test_split: 0.15  # Fraction of data to use as test set (may be 0)
-val_size: 0.17  # Proportion of remaining data after test split (for non-cv case)
+test_split: 0.0  # Fraction of data to use as test set (may be 0)
+val_size: 0.2  # Proportion of remaining data after test split (for non-cv case)
 random_state: 42
 n_splits: 5  # Number of folds for cross-validation
 
 # Dataset type: 'graph' for GraphDataset (PyG Data objects) or 'tensor' for TensorDataset (flat tensors)
-dataset_type: 3d  # default is graph, for PolyBERT use 'polybert', 3d for 3d
+dataset_type: multi_3d  # default is graph, for PolyBERT use 'polybert', 3d for 3d
 
 
 # DataLoader configuration

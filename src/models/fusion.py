@@ -5,7 +5,7 @@ import lightning.pytorch as pl
 from transformers import AutoModel
 from torch_geometric.nn import GCNConv, global_mean_pool
 from src.loss.masked_loss import WeightedMAELoss  # your custom loss
-
+from src.utils.running_mean import RunningMean
 
 class FusionPolyBERTGraph(pl.LightningModule):
     """
@@ -61,6 +61,7 @@ class FusionPolyBERTGraph(pl.LightningModule):
         self.loss_fn = WeightedMAELoss(property_ranges, num_samples_per_property)
 
         self.learning_rate = learning_rate
+        self.val_running_mean = RunningMean()
 
     # === Forward Pass ===
     def forward(self, input_ids: Tensor, attention_mask: Tensor, graph_data) -> Tensor:
@@ -98,6 +99,13 @@ class FusionPolyBERTGraph(pl.LightningModule):
         self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
         return loss
 
+    def on_validation_epoch_end(self):
+        val_outputs = self.trainer.callback_metrics  
+        mean_val_loss = val_outputs.get("val_loss")  
+        if mean_val_loss is not None:
+            self.val_running_mean.update(mean_val_loss.item())
+            self.log("val_loss_smoothed", self.val_running_mean.mean, prog_bar=True)
+    
     def test_step(self, batch, batch_idx):
         loss = self.shared_step(batch)
         self.log("test_loss", loss, on_step=False, on_epoch=True, prog_bar=True)

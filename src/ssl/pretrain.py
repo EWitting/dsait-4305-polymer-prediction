@@ -97,7 +97,6 @@ def main(cfg: DictConfig):
         print(
             "Please ensure your GATv2 model's 'encode' method outputs a known dimension."
         )
-        # As a fallback, let's try to get it from the instantiated model's 'fcs'
         try:
             backbone_output_dim = backbone_model.fcs[0].in_features
             print(f"Inferred backbone_output_dim as: {backbone_output_dim}")
@@ -122,7 +121,7 @@ def main(cfg: DictConfig):
         mask_p = cfg.ssl_model.mask_p
 
         # This will become the filename
-        experiment_name = f"SSL_lr{lr}_temp{temp}_drop{drop_p}_mask{mask_p}"
+        experiment_name = f"SSL_lr{lr}_temp{temp}_drop{drop_p}_mask{mask_p}_linear"
     except Exception as e:
         print(f"Could not build dynamic name, falling back. Error: {e}")
         experiment_name = "ContrastiveLearning_SSL"
@@ -144,7 +143,6 @@ def main(cfg: DictConfig):
     print(f"\nInstantiating SSL model: {cfg.ssl_model._target_}")
     lightning_model = instantiate(cfg.ssl_model, hparams=hparams_dict)
 
-    # =================== NEW: Checkpoint Callback ===================
     checkpoint_callback = ModelCheckpoint(
         dirpath="checkpoints/",
         filename=f"{experiment_name}_ssl_checkpoint",
@@ -154,7 +152,6 @@ def main(cfg: DictConfig):
         save_last=False,
     )
 
-    # =================== Trainer Setup ===================
     print("\nSetting up PyTorch Lightning Trainer...")
     trainer = pl.Trainer(
         **cfg.trainer,
@@ -162,7 +159,6 @@ def main(cfg: DictConfig):
         callbacks=[checkpoint_callback],  # Add the callback
     )
 
-    # =================== Training ===================
     print("\n" + "=" * 60)
     print("Starting SSL Pre-training...")
     print("=" * 60)

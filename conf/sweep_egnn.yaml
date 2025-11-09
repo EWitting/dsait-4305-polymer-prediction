@@ -1,0 +1,88 @@
+# WandB Sweep Configuration for GAT Model
+program: main.py
+project: polymer-prediction  # Change this to your desired WandB project name
+method: bayes  # Bayesian optimization for efficient hyperparameter search
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  # Model architecture hyperparameters - dimensions
+  model.n_layers:
+    values: [2, 4, 8, 12]
+
+  model.m_dim:
+    values: [8, 16, 32, 64]
+
+  model.aggr:
+    values: ['mean', 'max', 'min', 'softmax']
+
+  model.pooling:
+    values: ['global_mean', 'global_max', 'global_add']
+
+  model.embedding_dims:
+    values:
+      - [8, 4, 4, 4, 4, 4, 4, 4, 4, 4]
+      - [16, 8, 8, 8, 8, 8, 8, 8, 8, 8]
+      - [32, 16, 8, 8, 8, 8, 8, 8, 8, 8]
+      - [64, 32, 16, 16, 8, 8, 8, 8, 8, 8]
+      - [64, 32, 32, 16, 16, 16, 16, 16, 16, 16]
+      - [64, 64, 64, 32, 32, 32, 32, 32, 32, 32]
+
+  model.dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.4
+
+  model.global_linear_dims:
+    values: 
+      # Single layer
+      - [64]
+      - [128]
+      - [256]
+      # Two layers
+      - [128, 128]
+      - [256, 128]
+      - [128, 256]
+      - [256, 256]
+      # Three layers
+      - [128, 128, 128]
+      - [256, 128, 64]
+      - [128, 256, 128]
+      - [64, 128, 256]
+      - [256, 256, 256]
+
+  # Fixed parameters
+  trainer.max_epochs:
+    value: 25
+  
+  optimizer.lr:
+    distribution: log_uniform_values
+    min: 1e-6
+    max: 1e-3
+
+  optimizer.weight_decay:
+    distribution: log_uniform_values
+    min: 1e-20
+    max: 1e-3
+
+# Fixed parameters (not swept) - keeping learning rate and batch size constant
+command:
+  - ${env}
+  - uv
+  - run
+  - ${program}
+  - model=egnn_single
+  - data=3d_conformers
+  - data.compute_desc=true
+  - crossval=false
+  - data.val_size=0.2
+  - ${args_no_hyphens}
+  
+early_terminate:
+  type: hyperband
+  min_iter: 5
+  eta: 2
+  s: 2
+
+

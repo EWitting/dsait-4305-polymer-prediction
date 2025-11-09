@@ -16,6 +16,7 @@ class ContrastiveModel(pl.LightningModule):
         backbone_output_dim,
         temperature: float = 0.1,
         drop_p: float = 0.2,
+        edge_drop_p: float = 0.2,
         mask_p: float = 0.3,
         hparams=None,
     ):
@@ -34,22 +35,22 @@ class ContrastiveModel(pl.LightningModule):
 
         self.drop_p = drop_p
         self.mask_p = mask_p
-
-        # Store configs, will be instantiated in configure_optimizers
+        self.edge_drop_p = edge_drop_p
         self.optimizer_cfg = optimizer_cfg
         self.scheduler_cfg = scheduler_cfg
 
     def forward(self, data):
         node_embeddings = self.model.encode(data)
         graph_embedding = global_mean_pool(node_embeddings, data.batch)
-        # return a single graph embedding
         return graph_embedding
 
     def training_step(self, batch):
         batch_size = batch.num_graphs
 
         # Create two augmented views
-        aug1, aug2 = get_augmentations(batch, self.drop_p, self.mask_p)
+        aug1, aug2 = get_augmentations(
+            batch, self.drop_p, self.mask_p, self.edge_drop_p
+        )
 
         # Get embeddings from the backbone
         z1 = self.forward(aug1)
@@ -75,7 +76,9 @@ class ContrastiveModel(pl.LightningModule):
         batch_size = batch.num_graphs
 
         # Create two augmented views
-        aug1, aug2 = get_augmentations(batch, self.drop_p, self.mask_p)
+        aug1, aug2 = get_augmentations(
+            batch, self.drop_p, self.mask_p, self.edge_drop_p
+        )
 
         # Get embeddings from the backbone
         z1 = self.forward(aug1)
@@ -85,10 +88,8 @@ class ContrastiveModel(pl.LightningModule):
         p1 = self.projection_head(z1)
         p2 = self.projection_head(z2)
 
-        # Calculate the contrastive loss
         loss = self.contrastive_loss(p1, p2)
 
-        # Log with 'val_' prefix. 'on_step=False' is standard for validation.
         self.log(
             "val_ssl_loss",
             loss,

@@ -20,8 +20,11 @@ from omegaconf import DictConfig, OmegaConf
 
 import petname
 
+from collections import defaultdict
+
 from src.loss.masked_loss import WeightedMAELoss
 from src.preprocessing.fusionpreprocess import collate_fusion_fn
+from src.utils.running_mean import RunningMean
 
 print("Finished importing libraries.")
 print(f"CUDA available: {torch.cuda.is_available()}")
@@ -96,16 +99,49 @@ class FusionDataset(Dataset):
 
 
 class DescGraphDataset(Dataset):
-    def __init__(self, graphs, labels, descs=None):
+    def __init__(self, graphs, descs, labels):
         self.graphs = graphs
-        self.descs = descs
+        self.descs = torch.stack(descs)
         self.labels = torch.tensor(labels, dtype=torch.float32)
 
     def __len__(self):
         return len(self.graphs)
 
     def __getitem__(self, idx):
-        return self.graphs[idx], self.descs[idx, :], self.labels[idx]
+        return (self.graphs[idx], self.descs[idx]), self.labels[idx]
+
+
+class MultiGraphDataset(Dataset):
+    def __init__(self, graphs, descs, labels):
+        self.graphs1, self.graphs2, self.graphs3, self.graphs4, self.graphs5 = (
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+        for i in graphs:
+            self.graphs1.append(i[0])
+            self.graphs2.append(i[1])
+            self.graphs3.append(i[2])
+            self.graphs4.append(i[3])
+            self.graphs5.append(i[4])
+
+        self.descs = torch.stack(descs)
+        self.labels = torch.tensor(labels, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.graphs1)
+
+    def __getitem__(self, idx):
+        return (
+            self.graphs1[idx],
+            self.graphs2[idx],
+            self.graphs3[idx],
+            self.graphs4[idx],
+            self.graphs5[idx],
+            self.descs[idx],
+        ), self.labels[idx]
 
 
 # Wrap the model in a LightningModule
@@ -117,6 +153,7 @@ class LightningModel(pl.LightningModule):
         self.scheduler = scheduler
         self.loss_fn = loss_fn
         self.batch_size = batch_size
+        self.val_running_mean = RunningMean()
         # Save hyperparameters for wandb/tensorboard logging
         if hparams:
             self.save_hyperparameters(hparams)
@@ -151,6 +188,13 @@ class LightningModel(pl.LightningModule):
             batch_size=self.batch_size,
         )
         return loss
+
+    def on_validation_epoch_end(self):
+        val_outputs = self.trainer.callback_metrics
+        mean_val_loss = val_outputs.get("val_loss")
+        if mean_val_loss is not None:
+            self.val_running_mean.update(mean_val_loss.item())
+            self.log("val_loss_smoothed", self.val_running_mean.mean, prog_bar=True)
 
     def test_step(self, batch):
         x, y = batch
@@ -191,12 +235,12 @@ def train_fold(
     """Train a single fold and return metrics."""
 
     # Preprocess data
-    if cfg.data.dataset_type == "3d":
+    if cfg.data.dataset_type == "3d" or cfg.data.dataset_type == "multi_3d":
         X_train_processed = X_train
         X_val_processed = X_val
         X_test_processed = X_test
     else:
-        X_train_processed = preprocessor.fit_transform(X_train)
+        X_train_processed = preprocessor.transform(X_train)
         X_val_processed = preprocessor.transform(X_val) if X_val is not None else None
         X_test_processed = (
             preprocessor.transform(X_test) if X_test is not None else None
@@ -207,8 +251,37 @@ def train_fold(
 
     if dataset_type == "graph":
         dataset_cls = GraphDataset
-    elif dataset_type == "3d":
+    elif dataset_type == "3d" and not cfg.data.compute_desc:
         dataset_cls = GraphDataset
+        X_train_processed = X_train_processed[cfg.data.intervals[0]].values
+        X_val_processed = X_val_processed[cfg.data.intervals[0]].values
+        if cfg.data.test_split > 0:
+            X_test_processed = X_test_processed[cfg.data.intervals[0]].values
+    elif dataset_type == "3d" and cfg.data.compute_desc:
+        dataset_cls = DescGraphDataset
+
+        train_descs = X_train_processed["descs"].to_list()
+        val_descs = X_val_processed["descs"].to_list()
+        if cfg.data.test_split > 0:
+            test_descs = X_test_processed["descs"].to_list()
+
+        X_train_processed = X_train_processed[cfg.data.intervals].values.squeeze()
+        X_val_processed = X_val_processed[cfg.data.intervals].values.squeeze()
+        if cfg.data.test_split > 0:
+            X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
+
+    elif dataset_type == "multi_3d":
+        dataset_cls = MultiGraphDataset
+
+        train_descs = X_train_processed["descs"].to_list()
+        val_descs = X_val_processed["descs"].to_list()
+        if cfg.data.test_split > 0:
+            test_descs = X_test_processed["descs"].to_list()
+
+        X_train_processed = X_train_processed[cfg.data.intervals].values.squeeze()
+        X_val_processed = X_val_processed[cfg.data.intervals].values.squeeze()
+        if cfg.data.test_split > 0:
+            X_test_processed = X_test_processed[cfg.data.intervals].values.squeeze()
     elif dataset_type == "polybert":
         dataset_cls = PolyBERTDataset
     elif dataset_type == "fusion":
@@ -223,9 +296,24 @@ def train_fold(
             torch.tensor(Y_test, dtype=torch.float32) if Y_test is not None else None
         )
 
-    train_dataset = dataset_cls(X_train_processed, Y_train)
-    val_dataset = dataset_cls(X_val_processed, Y_val) if X_val is not None else None
-    test_dataset = dataset_cls(X_test_processed, Y_test) if X_test is not None else None
+    if cfg.data.get("compute_desc", False):
+        train_dataset = dataset_cls(X_train_processed, train_descs, Y_train)
+        val_dataset = (
+            dataset_cls(X_val_processed, val_descs, Y_val)
+            if X_val is not None
+            else None
+        )
+        test_dataset = (
+            dataset_cls(X_test_processed, test_descs, Y_test)
+            if X_test is not None
+            else None
+        )
+    else:
+        train_dataset = dataset_cls(X_train_processed, Y_train)
+        val_dataset = dataset_cls(X_val_processed, Y_val) if X_val is not None else None
+        test_dataset = (
+            dataset_cls(X_test_processed, Y_test) if X_test is not None else None
+        )
 
     # Create dataloaders
     if dataset_type == "fusion":
@@ -309,11 +397,57 @@ def train_fold(
         )
     else:
         model = instantiate(cfg.model)
+
+        # if (
+        #     cfg.pretrained_checkpoint is not None
+        #     and cfg.pretrained_checkpoint != "null"
+        # ):
+        #     print(f"\nLoading pretrained weights from: {cfg.pretrained_checkpoint}")
+        #     try:
+        #         # Load the entire SSL checkpoint (which is a LightningModule)
+        #         ssl_checkpoint = torch.load(
+        #             cfg.pretrained_checkpoint,
+        #             map_location=torch.device("cpu"),
+        #             weights_only=False,
+        #         )
+
+        #         # Extract the state_dict from the checkpoint
+        #         ssl_state_dict = ssl_checkpoint["state_dict"]
+
+        #         # Create a new state_dict for our GATv2 backbone
+        #         # The SSL model (ContrastiveModel) saved the GATv2 as 'self.model'
+        #         # So, all backbone weights are prefixed with 'model.'
+        #         backbone_state_dict = {}
+        #         for k, v in ssl_state_dict.items():
+        #             if k.startswith("model."):
+        #                 # Remove the 'model.' prefix to match the keys in the standalone GATv2 model
+        #                 new_key = k[len("model.") :]
+        #                 backbone_state_dict[new_key] = v
+
+        #         if not backbone_state_dict:
+        #             print(
+        #                 "WARNING: No keys starting with 'model.' found in checkpoint. Check prefix."
+        #             )
+
+        #         missing_keys, unexpected_keys = model.load_state_dict(
+        #             backbone_state_dict, strict=False
+        #         )
+        #     except FileNotFoundError:
+        #         print(
+        #             f"WARNING: Pretrained checkpoint not found at: {cfg.pretrained_checkpoint}. Training from scratch."
+        #         )
+        #     except Exception as e:
+        #         print(f"WARNING: Error loading checkpoint: {e}. Training from scratch.")
+        # else:
+        #     print("\nNo pretrained checkpoint specified. Training from scratch.")
+
     optimizer = instantiate(cfg.optimizer)(model.parameters())
 
     # Handle scheduler - it might be None/null in config
     scheduler = None
-    if "scheduler" in cfg and cfg.scheduler is not None:
+    if "scheduler" in cfg and (
+        cfg.scheduler is not None or cfg.scheduler.get("_target_", None) is not None
+    ):
         scheduler_obj = instantiate(cfg.scheduler)
         scheduler = (
             scheduler_obj(optimizer) if callable(scheduler_obj) else scheduler_obj
@@ -378,6 +512,11 @@ def train_fold(
             if val_results
             else 0.0
         )
+        metrics["val_score_smoothed"] = (
+            val_results.get("val_loss_smoothed", torch.tensor(0.0)).item()
+            if val_results
+            else 0.0
+        )
 
     if test_dataloader is not None:
         test_results = trainer.test(lightning_model, test_dataloader)
@@ -403,18 +542,17 @@ def main(cfg: DictConfig):
     # =================== Data Loading ===================
     print("\nLoading data...")
     data_path = os.path.join(cfg.data.data_dir, cfg.data.train_file)
-    if cfg.data.dataset_type == "3d":
+    if cfg.data.dataset_type == "3d" or cfg.data.dataset_type == "multi_3d":
         print("Loading pickle...")
         raw_train_data = pd.read_pickle(data_path)
         graph_descriptors = None
-        if cfg.data.compute_desc:
-            from src.preprocessing.rdkit_descriptors import RDKitDescriptorsPreprocessor
-
-            graph_descriptors = RDKitDescriptorsPreprocessor().fit_transform(
-                raw_train_data["SMILES"]
-            )
-        # for now just one graph TODO: multigraph and adding descriptors
-        X = raw_train_data[cfg.data.intervals[0]].values
+        if cfg.data.get("compute_desc", False):
+            descs_path = os.path.join(cfg.data.data_dir, "descs.pt")
+            graph_descriptors = torch.load(descs_path)
+            raw_train_data["descs"] = list(graph_descriptors)
+            # raw_train_data['descs'] = list(torch.randn((7973, 217)))
+        # for now just one graph
+        X = raw_train_data
         Y = raw_train_data[cfg.data.label_names].values
     else:
         raw_train_data = pd.read_csv(data_path)
@@ -452,6 +590,14 @@ def main(cfg: DictConfig):
     print(f"\nInstantiating preprocessor: {cfg.preprocessing._target_}")
     preprocessor = instantiate(cfg.preprocessing)
 
+    if cfg.data.dataset_type != "3d" and cfg.data.dataset_type != "multi_3d":
+        print(
+            f"\nFitting preprocessor on all {len(X_trainval)} training/validation samples..."
+        )
+        # This will call .fit() on your TextBasedPreprocessor or RDKitDescriptorsPreprocessor
+        preprocessor.fit(X_trainval)
+        print("Preprocessor fitting complete.")
+
     # Run cross-validation or single train-val-test split
     if cfg.crossval:
         print(f"\n{'='*60}")
@@ -472,10 +618,16 @@ def main(cfg: DictConfig):
             print(f"\nFold {fold_idx + 1}/{cfg.data.n_splits}")
             print("-" * 60)
 
-            X_train = X_trainval[train_idx]
-            Y_train = Y_trainval[train_idx]
-            X_val = X_trainval[val_idx]
-            Y_val = Y_trainval[val_idx]
+            if cfg.data.dataset_type == "3d" or cfg.data.dataset_type == "multi_3d":
+                X_train = X_trainval.iloc[train_idx]
+                Y_train = Y_trainval[train_idx]
+                X_val = X_trainval.iloc[val_idx]
+                Y_val = Y_trainval[val_idx]
+            else:
+                X_train = X_trainval[train_idx]
+                Y_train = Y_trainval[train_idx]
+                X_val = X_trainval[val_idx]
+                Y_val = Y_trainval[val_idx]
 
             metrics = train_fold(
                 cfg,
@@ -497,14 +649,38 @@ def main(cfg: DictConfig):
 
         # Aggregate results
         avg_metrics = {}
+        std_metrics = {}
+        ci_metrics = {}
+        folds = defaultdict(list)
         for key in fold_metrics[0].keys():
             avg_metrics[key] = np.mean([m[key] for m in fold_metrics])
+            std_metrics[key] = np.std([m[key] for m in fold_metrics])
+            ci_metrics[key + "_upper"] = np.percentile(
+                [m[key] for m in fold_metrics], q=95
+            )
+            ci_metrics[key + "_lower"] = np.percentile(
+                [m[key] for m in fold_metrics], q=5
+            )
+            folds[key].extend([m[key] for m in fold_metrics])
 
         print(f"\n{'='*60}")
         print("Cross-Validation Results (averaged over folds):")
         print("=" * 60)
-        for key, value in avg_metrics.items():
-            print(f"{key}: {value:.4f}")
+        keys = [
+            "train_score",
+            "val_score",
+            "val_score_smoothed",
+        ]
+        for key in keys:
+            print(
+                f"{key}: {avg_metrics[key]:.4f} ± {std_metrics[key]:.4f} [{ci_metrics[key + '_lower']:.4f}, {ci_metrics[key + '_upper']:.4f}]"
+            )
+
+        print(f"\n{'='*60}")
+        print("Cross-Validation Results (per fold):")
+        print("=" * 60)
+        for key, value in folds.items():
+            print(f"{key}: {[round(val, 4) for val in value]}")
 
     else:
         print(f"\n{'='*60}")

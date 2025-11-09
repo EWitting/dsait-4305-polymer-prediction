@@ -2,5 +2,4 @@
 _target_: src.preprocessing.oligomer.OligomerPreprocessor
 
 # Number of monomer units in the oligomer
-oligomer_len: 1
-
+oligomer_len: 2
