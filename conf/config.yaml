@@ -12,8 +12,7 @@ defaults:
 - ssl_model: contrastive
 - _self_
 
-# pretrained_checkpoint: "checkpoints/ContrastiveLearning_ssl_checkpoint.ckpt"
-
+pretrained_checkpoint: ${hydra:runtime.cwd}/checkpoints/SSL_lr0.001_temp0.1_drop0.1_mask0.2_ssl_checkpoint.ckpt
 # Experiment settings
 seed: null # Set to an integer for reproducibility
 crossval: false # Enable cross-validation

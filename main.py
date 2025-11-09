@@ -357,12 +357,6 @@ def train_fold(
             hparams=config_dict,
         )
 
-    # Load pretrained checkpoint if specified
-    if cfg.pretrained_checkpoint and cfg.pretrained_checkpoint is not None:
-        print(f"Loading pretrained weights from: {cfg.pretrained_checkpoint}")
-        ckpt = torch.load(cfg.pretrained_checkpoint, weights_only=False)
-        lightning_model.load_state_dict(ckpt["state_dict"], strict=False)
-
     trainer = pl.Trainer(**cfg.trainer, logger=logger)
 
     # Train and test

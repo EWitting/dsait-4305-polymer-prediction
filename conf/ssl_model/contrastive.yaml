@@ -3,3 +3,7 @@ backbone: ${model}
 optimizer_cfg: ${optimizer}
 scheduler_cfg: null
 backbone_output_dim: 64
+
+temperature: 0.1
+drop_p: 0.2
+mask_p: 0.3

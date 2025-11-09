@@ -14,6 +14,9 @@ class ContrastiveModel(pl.LightningModule):
         optimizer_cfg,
         scheduler_cfg,
         backbone_output_dim,
+        temperature: float = 0.1,
+        drop_p: float = 0.2,
+        mask_p: float = 0.3,
         hparams=None,
     ):
         super().__init__()
@@ -27,7 +30,10 @@ class ContrastiveModel(pl.LightningModule):
             nn.Linear(128, 64),
         )
 
-        self.contrastive_loss = NTXentLoss(temperature=0.1)
+        self.contrastive_loss = NTXentLoss(temperature=temperature)
+
+        self.drop_p = drop_p
+        self.mask_p = mask_p
 
         # Store configs, will be instantiated in configure_optimizers
         self.optimizer_cfg = optimizer_cfg
@@ -43,7 +49,7 @@ class ContrastiveModel(pl.LightningModule):
         batch_size = batch.num_graphs
 
         # Create two augmented views
-        aug1, aug2 = get_augmentations(batch)
+        aug1, aug2 = get_augmentations(batch, self.drop_p, self.mask_p)
 
         # Get embeddings from the backbone
         z1 = self.forward(aug1)
@@ -69,7 +75,7 @@ class ContrastiveModel(pl.LightningModule):
         batch_size = batch.num_graphs
 
         # Create two augmented views
-        aug1, aug2 = get_augmentations(batch)
+        aug1, aug2 = get_augmentations(batch, self.drop_p, self.mask_p)
 
         # Get embeddings from the backbone
         z1 = self.forward(aug1)

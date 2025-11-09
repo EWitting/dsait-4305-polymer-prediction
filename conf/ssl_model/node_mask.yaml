@@ -1,5 +1,0 @@
-_target_: ssl.SSLModels.MaskedNodeModel
-backbone_cfg: ${model}
-optimizer_cfg: ${optimizer}
-scheduler_cfg: ${scheduler}
-backbone_output_dim: ${model.hidden_channels[-1]}

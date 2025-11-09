@@ -114,8 +114,20 @@ def main(cfg: DictConfig):
         del hparams_dict["loss"]
 
     # change this depending on which pretext task
-    experiment_name = "ContrastiveLearning"
-    run_name = f"{experiment_name}_SSL_Pretraining"
+    try:
+        # Build a descriptive name from the config
+        lr = cfg.optimizer.lr
+        temp = cfg.ssl_model.temperature
+        drop_p = cfg.ssl_model.drop_p
+        mask_p = cfg.ssl_model.mask_p
+
+        # This will become the filename
+        experiment_name = f"SSL_lr{lr}_temp{temp}_drop{drop_p}_mask{mask_p}"
+    except Exception as e:
+        print(f"Could not build dynamic name, falling back. Error: {e}")
+        experiment_name = "ContrastiveLearning_SSL"
+
+    run_name = f"{experiment_name}_Pretraining"
 
     wandb.finish()  # Finish any previous runs
     logger = WandbLogger(
